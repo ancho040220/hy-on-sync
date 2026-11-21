@@ -1,0 +1,75 @@
+name: sync
+
+on:
+  schedule:
+    # KST 08:00, 14:00, 21:00 (= UTC 23:00, 05:00, 12:00). 예약 실행은 수십 분 늦을 수 있다.
+    - cron: "0 23,5,12 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "쓰지 않고 계획만 출력"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # state/alert_log.json 커밋용
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install .
+
+      - name: Write Google service account key
+        env:
+          GCAL_SA: ${{ secrets.GCAL_SERVICE_ACCOUNT_JSON }}
+        # Secret이 비어 있으면 파일을 만들지 않는다 → 미러를 건너뛴다
+        run: if [ -n "$GCAL_SA" ]; then printf '%s' "$GCAL_SA" > gcal-service-account.json; fi
+
+      - name: Sync
+        env:
+          HYON_BASE_URL: ${{ secrets.HYON_BASE_URL }}
+          HYON_TOKEN: ${{ secrets.HYON_TOKEN }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
+          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
+          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          GCAL_ICS_URL: ${{ secrets.GCAL_ICS_URL }}
+          GCAL_TARGET_CALENDAR_ID: ${{ secrets.GCAL_TARGET_CALENDAR_ID }}
+          COURSE_ALIASES: ${{ vars.COURSE_ALIASES }}
+        run: python -m hysync.sync ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Rotate Kakao refresh token
+        if: always() && hashFiles('.kakao_refresh_token') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }} # 이 저장소 Secrets 쓰기 권한이 있는 fine-grained PAT
+        run: |
+          gh secret set KAKAO_REFRESH_TOKEN < .kakao_refresh_token
+          rm -f .kakao_refresh_token
+
+      - name: Commit alert log
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain state/)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state/
+            git commit -m "chore: update alert log"
+            git push
+          fi
+
+      - name: Remove Google service account key
+        if: always()
+        run: rm -f gcal-service-account.json

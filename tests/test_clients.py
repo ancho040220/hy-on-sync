@@ -1,0 +1,313 @@
+"""네트워크 없이 클라이언트 변환 로직과 메시지 묶기를 검증한다."""
+
+import json
+from datetime import datetime, timedelta
+
+import httpx
+import pytest
+
+from conftest import make_item
+
+from hysync.canvas import CanvasClient, assignment_to_item, html_to_text, split_lms_id
+from hysync.config import load_config
+from hysync.dates import KST
+from hysync.gcal import parse_exams
+from hysync.kakao import KakaoClient
+from hysync.messages import format_messages
+from hysync.notion import build_properties, parse_page
+from hysync.planner import Alert
+
+
+# ---- Canvas ----
+
+def test_assignment_to_item_classifies_quiz_and_converts_dates():
+    a = {"id": 77, "name": " 퀴즈 3 ", "due_at": "2026-12-04T14:59:00Z", "unlock_at": None,
+         "html_url": "https://lms/q/77", "submission_types": ["online_quiz"]}
+    item = assignment_to_item(a, 12, "데이터베이스")
+    assert item.lms_id == "quiz-12-77"
+    assert item.kind == "퀴즈"
+    assert item.title == "퀴즈 3"
+    assert item.due_at == datetime(2026, 12, 4, 23, 59, tzinfo=KST)
+    assert split_lms_id(item.lms_id) == (12, 77)
+
+
+def test_canvas_follows_pagination_and_aliases():
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v1/courses":
+            return httpx.Response(200, json=[{"id": 1, "name": "시스템프로그래밍(CSE4009-11)"}])
+        if path == "/api/v1/courses/1/assignments" and "page=2" not in str(request.url):
+            return httpx.Response(
+                200,
+                json=[{"id": 10, "name": "Lab 1", "due_at": None, "submission_types": ["online_upload"]}],
+                headers={"Link": '<https://lms.test/api/v1/courses/1/assignments?page=2>; rel="next"'},
+            )
+        return httpx.Response(200, json=[{"id": 11, "name": "Lab 2", "due_at": None, "submission_types": ["online_upload"]}])
+
+    http = httpx.Client(base_url="https://lms.test", transport=httpx.MockTransport(handler))
+    items = CanvasClient("https://lms.test", "t", http=http).fetch_items({"시스템프로그래밍(CSE4009-11)": "시스템 프로그래밍"})
+    assert [i.lms_id for i in items] == ["assignment-1-10", "assignment-1-11"]
+    assert {i.course for i in items} == {"시스템 프로그래밍"}
+
+
+def test_canvas_strips_semester_code_from_course_name():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/courses":
+            return httpx.Response(200, json=[
+                {"id": 1, "name": "202620HY24987_데이터베이스"},
+                {"id": 2, "name": "202620HY23639_알고리즘"},
+            ])
+        return httpx.Response(200, json=[{"id": 10, "name": "과제 1", "due_at": None, "submission_types": ["online_upload"]}])
+
+    http = httpx.Client(base_url="https://lms.test", transport=httpx.MockTransport(handler))
+    items = CanvasClient("https://lms.test", "t", http=http).fetch_items({"알고리즘": "알고리즘 설계"})
+    assert [i.course for i in items] == ["데이터베이스", "알고리즘 설계"]
+
+
+def test_html_to_text():
+    assert html_to_text("<p>보고서 제출&nbsp;안내</p><ul><li>PDF</li></ul>") == "보고서 제출 안내\nPDF"
+
+
+# ---- Notion ----
+
+def test_notion_properties_roundtrip(now):
+    item = make_item(due=now + timedelta(days=5))
+    start = item.due_at - timedelta(days=7)
+    props = build_properties(item, start, {"신규"})
+    assert "진행 상태" not in props  # 스크립트는 진행 상태를 건드리지 않는다
+    assert props["마감 날짜"]["date"] == {"start": start.isoformat(), "end": item.due_at.isoformat()}
+
+    # 노션이 돌려주는 모양으로 바꿔 다시 읽는다
+    page = {
+        "id": "p1",
+        "properties": {
+            "과제명": {"title": [{"plain_text": item.title}]},
+            "과목": {"select": {"name": item.course}},
+            "마감 날짜": {"date": props["마감 날짜"]["date"]},
+            "진행 상태": {"status": {"name": "진행 중"}},
+            "유형": {"select": {"name": "과제"}},
+            "LMS ID": {"rich_text": [{"plain_text": item.lms_id}]},
+            "링크": {"url": item.url},
+            "알림 기록": {"multi_select": [{"name": "신규"}]},
+        },
+    }
+    rec = parse_page(page)
+    assert (rec.lms_id, rec.status, rec.sent) == (item.lms_id, "진행 중", {"신규"})
+    assert rec.start == start and rec.end == item.due_at
+
+
+def test_notion_manual_page_without_new_properties():
+    rec = parse_page({"id": "p2", "properties": {
+        "과제명": {"title": [{"plain_text": "자료구조론 2차 과제"}]},
+        "마감 날짜": {"date": {"start": "2026-04-20", "end": None}},
+    }})
+    assert rec.lms_id is None and rec.sent == set()
+    assert rec.end == rec.start
+
+
+# ---- Google Calendar iCal ----
+
+ICS = b"""BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:exam1@google.com
+SUMMARY:\xeb\x8d\xb0\xec\x9d\xb4\xed\x84\xb0\xeb\xb2\xa0\xec\x9d\xb4\xec\x8a\xa4 \xea\xb8\xb0\xeb\xa7\x90\xec\x8b\x9c\xed\x97\x98
+DTSTART:20261215T013000Z
+DTEND:20261215T033000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:exam2@google.com
+SUMMARY:\xec\x8b\x9c\xec\x8a\xa4\xed\x85\x9c \xed\x94\x84\xeb\xa1\x9c\xea\xb7\xb8\xeb\x9e\x98\xeb\xb0\x8d \xec\x8b\x9c\xed\x97\x98
+DTSTART;VALUE=DATE:20261216
+END:VEVENT
+BEGIN:VEVENT
+UID:other@google.com
+SUMMARY:\xeb\x8f\x99\xec\x95\x84\xeb\xa6\xac \xeb\xaa\xa8\xec\x9e\x84
+DTSTART:20261210T100000Z
+END:VEVENT
+END:VCALENDAR
+"""
+
+
+def test_parse_exams_filters_by_keyword_and_handles_all_day(now):
+    exams = parse_exams(ICS, "시험", now)
+    assert [e.title for e in exams] == ["데이터베이스 기말시험", "시스템 프로그래밍 시험"]
+    timed, all_day = exams
+    assert timed.due_at == datetime(2026, 12, 15, 10, 30, tzinfo=KST) and not timed.all_day
+    assert all_day.due_at == datetime(2026, 12, 16, 0, 0, tzinfo=KST) and all_day.all_day
+    assert timed.lms_id == "exam-exam1@google.com"
+
+
+ICS_GOSA = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:mid@google.com
+SUMMARY:운영체제 중간고사
+DTSTART:20261210T010000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:final@google.com
+SUMMARY:데이터베이스 기말시험
+DTSTART:20261215T010000Z
+END:VEVENT
+BEGIN:VEVENT
+UID:other@google.com
+SUMMARY:동아리 모임
+DTSTART:20261211T010000Z
+END:VEVENT
+END:VCALENDAR
+""".encode()
+
+
+def test_parse_exams_accepts_comma_separated_keywords(now):
+    exams = parse_exams(ICS_GOSA, "시험, 고사", now)
+    assert [e.title for e in exams] == ["운영체제 중간고사", "데이터베이스 기말시험"]
+
+
+def test_parse_exams_ignores_empty_keywords(now):
+    exams = parse_exams(ICS_GOSA, "시험, ,", now)
+    assert [e.title for e in exams] == ["데이터베이스 기말시험"]
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_exam_keyword_defaults_to_siheom_and_gosa(monkeypatch, tmp_path, value):
+    monkeypatch.chdir(tmp_path)  # 프로젝트 .env를 읽지 않게
+    monkeypatch.delenv("HYSYNC_ENV_FILE", raising=False)
+    for name in ("HYON_BASE_URL", "HYON_TOKEN", "NOTION_TOKEN", "NOTION_DATABASE_ID"):
+        monkeypatch.setenv(name, "x")
+    if value is None:
+        monkeypatch.delenv("EXAM_KEYWORD", raising=False)
+    else:
+        monkeypatch.setenv("EXAM_KEYWORD", value)
+    assert load_config().exam_keyword == "시험,고사"
+
+
+# ---- Kakao ----
+
+def test_kakao_refresh_rotates_token_and_sends():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.host == "kauth.kakao.com":
+            return httpx.Response(200, json={"access_token": "A", "refresh_token": "R2"})
+        return httpx.Response(200, json={"result_code": 0})
+
+    client = KakaoClient("key", "secret", "R1", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    client.send_text("[D-1] 테스트", "https://lms.test")
+    assert client.new_refresh_token == "R2"
+    sent = calls[1]
+    assert sent.headers["Authorization"] == "Bearer A"
+    body = dict(httpx.QueryParams(sent.content.decode()))
+    assert json.loads(body["template_object"])["text"] == "[D-1] 테스트"
+
+
+# ---- 메시지 ----
+
+def test_messages_sorted_by_urgency_and_split_under_200_chars(now):
+    alerts = [Alert("새 과제", make_item(lms_id=f"assignment-1-{i}", title=f"주간 과제 {i}번 - 보고서 제출", due=now + timedelta(days=6, hours=i))) for i in range(8)]
+    alerts.append(Alert("D-1", make_item(lms_id="assignment-1-99", title="Lab 3", due=now + timedelta(hours=5))))
+    messages = format_messages(alerts)
+    assert len(messages) > 1
+    assert all(len(m) <= 200 for m in messages)
+    assert messages[0].startswith("[D-1] 시스템 프로그래밍 · Lab 3 · 12/1(화) 13:00")
+
+
+# ---- Google Calendar 쓰기 ----
+
+def _service_account():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    return {"client_email": "sa@test.iam.gserviceaccount.com", "private_key": pem.decode(),
+            "token_uri": "https://oauth2.googleapis.com/token"}
+
+
+def _gcal_client(routes):
+    """routes: (method, path 끝부분) -> Response 를 돌려주는 함수. 받은 요청은 calls에 남긴다."""
+    from hysync.gcal_writer import GoogleCalendarClient
+
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "at", "expires_in": 3600})
+        return routes(request)
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    return GoogleCalendarClient("cal@group.calendar.google.com", _service_account(), http=http), calls
+
+
+def test_gcal_client_gets_token_with_signed_jwt_and_lists_all_pages():
+    def routes(request):
+        if "pageToken" not in request.url.params:
+            return httpx.Response(200, json={"nextPageToken": "p2", "items": [
+                {"id": "e1", "summary": "A", "status": "confirmed",
+                 "start": {"dateTime": "2026-12-01T00:00:00Z"}, "end": {"dateTime": "2026-12-01T01:00:00Z"}},
+                {"id": "e2", "summary": "B", "status": "confirmed", "description": "d",
+                 "start": {"date": "2026-12-02"}, "end": {"date": "2026-12-03"}},
+            ]})
+        return httpx.Response(200, json={"items": [{"id": "e3", "status": "cancelled"}]})
+
+    client, calls = _gcal_client(routes)
+    events = client.list_events()
+    assert [e.id for e in events] == ["e1", "e2", "e3"]
+    assert events[0].start == datetime(2026, 12, 1, 9, 0, tzinfo=KST)
+    assert events[1].start == datetime(2026, 12, 2, 0, 0, tzinfo=KST)
+    assert events[2].cancelled and events[0].description == "" and events[1].description == "d"
+    token_reqs = [c for c in calls if c.url.host == "oauth2.googleapis.com"]
+    assert len(token_reqs) == 1
+    assert b"grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer" in token_reqs[0].content
+    list_req = calls[1]
+    assert list_req.headers["Authorization"] == "Bearer at" and list_req.url.params["showDeleted"] == "true"
+
+
+def test_gcal_client_create_falls_back_to_put_on_409():
+    from hysync.models import GcalEvent
+
+    def routes(request):
+        return httpx.Response(409, json={}) if request.method == "POST" else httpx.Response(200, json={})
+
+    client, calls = _gcal_client(routes)
+    start = datetime(2026, 12, 1, 9, 0, tzinfo=KST)
+    client.create(GcalEvent("e1", "데이터베이스 · 퀴즈 1", start, start + timedelta(hours=1), "https://lms/q"))
+    put = calls[-1]
+    assert put.method == "PUT" and put.url.path.endswith("/events/e1")
+    body = json.loads(put.content)
+    assert body["status"] == "confirmed" and body["start"] == {"dateTime": start.isoformat(), "timeZone": "Asia/Seoul"}
+    assert body["summary"] == "데이터베이스 · 퀴즈 1" and body["description"] == "https://lms/q"
+
+
+def test_gcal_client_delete_ignores_gone_and_raises_on_403():
+    from hysync.gcal_writer import GcalError
+
+    def routes(request):
+        return httpx.Response(410) if request.url.path.endswith("/gone") else httpx.Response(403, text="forbidden")
+
+    client, _ = _gcal_client(routes)
+    client.delete("gone")
+    with pytest.raises(GcalError):
+        client.delete("forbidden")
+
+
+def test_gcal_client_marks_events_it_writes_and_reads_the_mark():
+    from hysync.models import GcalEvent
+
+    def routes(request):
+        if request.method == "GET":
+            return httpx.Response(200, json={"items": [
+                {"id": "mine", "status": "confirmed", "start": {"date": "2026-12-01"}, "end": {"date": "2026-12-02"},
+                 "extendedProperties": {"private": {"hysync": "mirror"}}},
+                {"id": "theirs", "status": "confirmed", "start": {"date": "2026-12-01"}, "end": {"date": "2026-12-02"}},
+            ]})
+        return httpx.Response(200, json={})
+
+    client, calls = _gcal_client(routes)
+    start = datetime(2026, 12, 1, 9, 0, tzinfo=KST)
+    client.create(GcalEvent("e1", "A", start, start))
+    assert json.loads(calls[-1].content)["extendedProperties"] == {"private": {"hysync": "mirror"}}
+    owned = {e.id: e.owned for e in client.list_events()}
+    assert owned == {"mine": True, "theirs": False}
