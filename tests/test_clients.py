@@ -311,3 +311,109 @@ def test_gcal_client_marks_events_it_writes_and_reads_the_mark():
     assert json.loads(calls[-1].content)["extendedProperties"] == {"private": {"hysync": "mirror"}}
     owned = {e.id: e.owned for e in client.list_events()}
     assert owned == {"mine": True, "theirs": False}
+
+
+# ---- LearningX 동영상 (출석 영상 기한) ----
+
+LX_FORM = """<html><body><form action="https://lms.test/learningx/lti/lecture_attendance/course_menu" method="post">
+<input type="hidden" name="oauth_signature" value="sig"><input type="hidden" name="user_id" value="u1"></form></body></html>"""
+
+
+def _lx_transport(calls, items_status=200):
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        path = request.url.path
+        if path == "/api/v1/courses":
+            return httpx.Response(200, json=[{"id": 1, "name": "202620HY24987_데이터베이스"}])
+        if path == "/api/v1/courses/1/external_tools":
+            return httpx.Response(200, json=[
+                {"id": 9, "url": "https://lms.test/learningx/lti/learnstatus"},
+                {"id": 138, "url": "https://lms.test/learningx/lti/lecture_attendance/course_menu"},
+            ])
+        if path == "/api/v1/courses/1/external_tools/sessionless_launch":
+            assert request.url.params["id"] == "138"
+            return httpx.Response(200, json={"url": "https://lms.test/courses/1/external_tools/sessionless_launch?verifier=v"})
+        if path == "/courses/1/external_tools/sessionless_launch":
+            return httpx.Response(200, html=LX_FORM)
+        if path == "/learningx/lti/lecture_attendance/course_menu":
+            return httpx.Response(200, html="ok", headers={"Set-Cookie": "xn_api_token=XN; Path=/"})
+        if path == "/learningx/api/v1/courses/1/attendance_items":
+            if items_status != 200:
+                return httpx.Response(items_status, text="boom XN")
+            return httpx.Response(200, json={"attendance_items": [
+                {"item_id": 11, "title": "Ch6.ER모델1", "use_attendance": True, "item_content_type": "commons",
+                 "unlock_at": "2026-11-23T15:00:00Z", "due_at": "2026-11-29T14:59:59Z"},
+                {"item_id": 12, "title": "Ch10.빅데이터1", "use_attendance": True, "item_content_type": "commons",
+                 "unlock_at": None, "due_at": "2026-12-13T14:59:59Z"},
+                {"item_id": 13, "title": "11/16(월) 대면 수업", "use_attendance": True, "item_content_type": "smart_attendance",
+                 "due_at": "2026-11-16T07:00:00Z"},
+                {"item_id": 14, "title": "Ch6.ER모델1", "use_attendance": False, "item_content_type": "commons",
+                 "due_at": None},
+                {"item_id": 15, "title": "참고 영상", "use_attendance": True, "item_content_type": "commons", "due_at": None},
+            ], "counts": {}})
+        if path == "/learningx/api/v1/courses/1/attendance_items/summary":
+            return httpx.Response(200, json={"attendance_summaries": {
+                "11": {"item_id": 11, "attendance_status": "attendance"},
+                "12": {"item_id": 12, "attendance_status": "none"},
+                "13": {"item_id": 13, "attendance_status": "absent"},
+            }})
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+def _lx_client(calls, items_status=200):
+    from hysync.learningx import LearningXClient
+
+    transport = _lx_transport(calls, items_status)
+    canvas = CanvasClient("https://lms.test", "t", http=httpx.Client(base_url="https://lms.test", transport=transport,
+                                                                      headers={"Authorization": "Bearer t"}))
+    return LearningXClient(canvas, "https://lms.test", http=httpx.Client(transport=transport, follow_redirects=True))
+
+
+def test_learningx_fetches_attendance_videos_with_status():
+    calls = []
+    videos = _lx_client(calls).fetch_videos({})
+
+    assert [(v.lms_id, v.title, v.done) for v in videos] == [
+        ("video-1-11", "Ch6.ER모델1", True),
+        ("video-1-12", "Ch10.빅데이터1", False),
+    ]
+    assert {v.kind for v in videos} == {"동영상"} and {v.course for v in videos} == {"데이터베이스"}
+    assert videos[1].due_at == datetime(2026, 12, 13, 23, 59, 59, tzinfo=KST)
+    assert videos[0].url == "https://lms.test/courses/1/external_tools/138"
+
+    lx_calls = [c for c in calls if c.url.path.startswith("/learningx/api/")]
+    assert lx_calls and all(c.headers["Authorization"] == "Bearer XN" for c in lx_calls)
+    assert lx_calls[0].url.params["include_detail"] == "true"
+    launch_and_lx = [c for c in calls if not c.url.path.startswith("/api/v1/")]
+    assert all(c.headers.get("Authorization") != "Bearer t" for c in launch_and_lx)  # Canvas 토큰은 LearningX로 보내지 않는다
+    assert not any("user_login" in str(c.url) for c in calls)
+
+
+def test_learningx_error_does_not_leak_token():
+    from hysync.learningx import LearningXError
+
+    with pytest.raises(LearningXError) as exc:
+        _lx_client([], items_status=500).fetch_videos({})
+    assert "XN" not in str(exc.value) and "500" in str(exc.value)
+
+
+def test_learningx_changed_response_shape_raises_instead_of_silently_misreporting():
+    from hysync.learningx import LearningXError
+
+    calls = []
+    base = _lx_transport(calls)
+
+    def handler(request):
+        if request.url.path.endswith("/attendance_items/summary"):
+            return httpx.Response(200, json={"renamed": {}})  # 키 이름이 바뀐 응답
+        return base.handle_request(request)
+
+    transport = httpx.MockTransport(handler)
+    from hysync.learningx import LearningXClient
+    canvas = CanvasClient("https://lms.test", "t", http=httpx.Client(base_url="https://lms.test", transport=transport))
+    client = LearningXClient(canvas, "https://lms.test", http=httpx.Client(transport=transport, follow_redirects=True))
+    with pytest.raises(LearningXError) as exc:
+        client.fetch_videos({})
+    assert "XN" not in str(exc.value)

@@ -150,6 +150,7 @@ def plan_state(
     """시험·동영상 알림을 정하고 새 상태를 돌려준다.
 
     - 동영상: 처음 보이면 '새 동영상' 알림. 시험은 내가 직접 등록하므로 신규 알림이 없다.
+    - 동영상이 이미 출석 처리됐거나(done) 처음 봤을 때 이미 마감이 지났으면 알림 없이 기록만 한다.
     - D-3·D-1: 구간에 처음 들어가면 한 번만.
     - 마감이 바뀌면 D-3·D-1 기록만 초기화한다 (변경 알림은 과제·퀴즈만).
     - 마감이 keep_days일 넘게 지난 기록은 지운다.
@@ -165,7 +166,9 @@ def plan_state(
 
         if entry is None:
             sent: set[str] = set()
-            if item.kind != KIND_EXAM:
+            if item.kind != KIND_EXAM and (item.done or item.due_at < now):
+                sent.add(SENT_NEW)  # 이미 봤거나 지난 영상: 알리지 않고 본 것으로 기록
+            elif item.kind != KIND_EXAM:
                 alerts.append(Alert(_new_tag(item), item))
                 sent.add(SENT_NEW)
                 if stage:
@@ -177,7 +180,7 @@ def plan_state(
             sent = set(entry.get("sent", []))
             if not same_instant(parse_iso(entry.get("due")), item.due_at):
                 sent -= set(DUE_STAGES)
-            if stage and stage not in sent:
+            if stage and stage not in sent and not item.done:
                 alerts.append(Alert(stage, item))
                 sent.add(stage)
 

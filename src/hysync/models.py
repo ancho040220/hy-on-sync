@@ -32,6 +32,7 @@ class Item:
     unlock_at: datetime | None = None
     url: str | None = None
     all_day: bool = False  # 종일 일정(시험)이면 시각 없이 날짜만 표시
+    done: bool = False  # 동영상: 이미 출석 처리됨
 
 
 @dataclass

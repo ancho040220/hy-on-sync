@@ -14,13 +14,16 @@ from hysync.sync import run
 
 
 class FakeCanvas:
-    def __init__(self, items, videos=()):
-        self.items, self.videos = list(items), list(videos)
+    def __init__(self, items, videos=(), videos_fail=False):
+        self.items, self.videos, self.videos_fail = list(items), list(videos), videos_fail
 
     def fetch_items(self, aliases):
         return self.items
 
-    def fetch_videos(self):
+    def fetch_videos(self, aliases=None):
+        if self.videos_fail:
+            from hysync.learningx import LearningXError
+            raise LearningXError("LearningX 요청 실패 (500)")
         return self.videos
 
 
@@ -243,3 +246,23 @@ def test_dry_run_survives_unexpected_gcal_exception(tmp_path, now, capsys):
     run(cfg(tmp_path), now=now, dry_run=True, canvas=FakeCanvas([]), notion=FakeNotion([]), kakao=FakeKakao(),
         exams=[], gcal=BrokenGcal())
     assert "구글 캘린더" in capsys.readouterr().out
+
+
+# ---- 동영상 (LearningX) ----
+
+def test_video_fetch_failure_keeps_video_state_and_next_run_sends_no_new_alert(tmp_path, now):
+    from hysync.models import KIND_VIDEO
+    from hysync.state import save_state
+
+    video = Item("video-1-5", KIND_VIDEO, "데이터베이스", "Ch10.빅데이터1", now + timedelta(days=10))
+    save_state(tmp_path / "alert_log.json", {"video-1-5": {"due": video.due_at.isoformat(), "sent": ["신규"]}})
+
+    failed = run(cfg(tmp_path), now=now, canvas=FakeCanvas([], videos_fail=True), notion=FakeNotion([]),
+                 kakao=FakeKakao(), exams=[], gcal=FakeGcal())
+    assert not failed.videos_ok and failed.kakao_ok
+    assert "video-1-5" in load_state(tmp_path / "alert_log.json")
+
+    kakao = FakeKakao()
+    ok = run(cfg(tmp_path), now=now, canvas=FakeCanvas([], videos=[video]), notion=FakeNotion([]),
+             kakao=kakao, exams=[], gcal=FakeGcal())
+    assert ok.videos_ok and kakao.sent == []

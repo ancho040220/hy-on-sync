@@ -12,7 +12,7 @@ claude.ai 대화에서 계획서와 구현 초안까지 만들었고, 이제 Cla
 | `sync.py` 전체 흐름, `--dry-run` | **실제 1회 실행 (2026-11-21):** 노션 6건 생성, 카톡 3개 전송. 바로 다시 돌린 dry-run은 '바뀐 것 없음' |
 | MCP 서버 (`list_upcoming`, `get_item`) | stdio 연결과 도구 호출을 가짜 HY-ON으로 확인 |
 | GitHub Actions 워크플로 | `.github/workflows/sync.yml`로 옮김 (2026-11-21, 6단계). 아직 실행 안 해봄 |
-| 동영상 강의 기한 (`fetch_videos`) | 미구현 (빈 목록) |
+| 동영상 강의 기한 (`fetch_videos`) | **구현 (2026-11-21, `learningx.py`)**. 로컬 dry-run: 출석 영상 51건 읽음, 알림은 출석 안 한 2건(빅데이터1·2)만 |
 
 ## 확인 안 된 가정
 
@@ -36,9 +36,9 @@ claude.ai 대화에서 계획서와 구현 초안까지 만들었고, 이제 Cla
 3. ~~노션 연결, dry-run~~ 완료
 4. ~~카카오톡 연결, 실제 1회 실행~~ 완료
 5. ~~구글 캘린더 시험 연결~~ 완료
-6. GitHub 비공개 저장소, Actions 가동 → **12/6까지 1단계 가동** ← **다음 작업**
-7. MCP 서버를 Claude Code·데스크톱에 등록
-8. 동영상 기한 조사·구현 (시간 없으면 기말 후로)
+6. ~~GitHub 비공개 저장소, Actions 가동~~ 완료 (2026-11-21). 남은 것: `GH_PAT` Secret (12/21 전)
+7. MCP 서버를 Claude Code·데스크톱에 등록 (사용자 결정: 지금은 하지 않음)
+8. ~~동영상 기한 조사·구현~~ 완료 (2026-11-21, 브랜치 `feature/video-alerts` → PR)
 9. README·데모 정리 → **12/13 완성**
 
 ## 2026-11-21 진행 기록 (1~5단계)
@@ -67,6 +67,26 @@ claude.ai 대화에서 계획서와 구현 초안까지 만들었고, 이제 Cla
 - 노션 DB 항목은 노션 캘린더 앱에서만 보이고 구글 캘린더에는 써지지 않는다는 것을 확인했다. 그래서 동기화가 노션 과제DB 전체를 구글 전용 캘린더 'HY-ON 과제'에 비추도록 했다(설계: `docs/superpowers/specs/2026-11-21-gcal-mirror-design.md`, 계획: `docs/superpowers/plans/2026-11-21-gcal-mirror.md`).
 - 사용자 준비(README '5. 구글 캘린더 (과제 미러)')가 끝나면 dry-run → 승인 → 실제 실행 → 재실행 dry-run '변경 0건' 순서로 확인한다.
 - 6단계 Secrets에 `GCAL_TARGET_CALENDAR_ID`, `GCAL_SERVICE_ACCOUNT_JSON`(키 파일 내용 전체)을 추가한다.
+
+**GitHub·Actions (6단계)**
+- 저장소: `ancho040220/hy-on-sync` (비공개, 기본 브랜치 `main`). 첫 커밋 `ebdcc4c`만 사용자 동의로 main에 직접 push했다. 이후 작업은 브랜치로 한다. Actions 봇은 `state/alert_log.json`을 main에 커밋하므로, 로컬에서 작업하기 전에 `git pull`한다.
+- Secrets는 `gh secret set -f .env`와 키 파일로 넣었다(13개). **`GH_PAT`은 아직 없다.** 카카오 리프레시 토큰이 2026-12-21쯤부터 새로 발급되므로 그 전에 이 저장소 Secrets 쓰기 권한만 준 fine-grained PAT를 넣어야 한다. 없으면 새 토큰 교체 단계가 실패한다.
+- `workflow_dispatch` dry_run 실행(run 44900749282)이 성공했다: HY-ON 36건, 노션 32건, 구글 캘린더 변경 0건.
+
+**동영상 강의 기한 조사 (8단계, 2026-11-21)**
+- 영상은 모듈에 ExternalTool(`learning.hanyang.ac.kr/learningx`)로 들어 있고, Canvas 표준 API에는 날짜가 없다.
+- LearningX API(`/learningx/api/v1/courses/{id}/allcomponents_db?...`)는 존재한다. 토큰 없이 부르면 `401 Unauthorized`(JSON), Canvas 개인 액세스 토큰으로 부르면 `400 Invalid request`(HTML)다. LearningX는 Canvas 토큰이 아니라 자체 토큰(외부 도구를 열 때 브라우저에 생기는 값)을 요구하는 것으로 보인다. → **개인 토큰으로는 안 되므로 구현하지 않았다.**
+- **sessionless launch 확인 (같은 날):** Canvas 공식 API `GET /api/v1/courses/{id}/external_tools/sessionless_launch?id=<도구ID>`로 받은 주소를 열고 LTI 폼을 POST하면, 개인 토큰만으로 LearningX 토큰(`xn_api_token` 쿠키)이 생긴다. 과목 메뉴용 도구(예: Classmix id 19)로 열면 영상 항목을 건드리지 않는다. 그 토큰으로 `allcomponents_db`가 200으로 응답한다.
+  - 그런데 `allcomponents_db`에는 Canvas 과제·퀴즈만 있고 **영상은 없다.** 영상은 '강의/출결'(도구 id 138, `/learningx/lti/lecture_attendance/...`) 쪽 데이터다. 그 목록을 주는 API 주소는 아직 모른다.
+  - **영상 기한 API 찾음:** '주차학습' 도구(id 140)를 sessionless로 열어 받은 토큰으로 `GET /learningx/api/v1/courses/{id}/modules?include_detail=true`를 부르면, `module_items[]` 중 `content_type == "attendance_item"`의 `content_data`에 `title`, `week_position`, `use_attendance`, `unlock_at`, `due_at`(학습인정기간 마감), `late_at`, `lock_at`(열람 종료)이 있다. 화면 값과 일치한다(Ch1.서론-2: due 2026-09-13T14:59:59Z = 9/13 23:59). 한 과목에서 받은 토큰으로 모든 과목이 조회된다.
+  - 2026-11-21 기준 앞으로 마감인 출석 영상: 데이터베이스 9개(11/22, 11/29, 12/6, 12/13 각 23:59). 나머지 과목은 0개.
+  - **출석 여부도 찾음:** '출결현황' 화면(도구 id 138)이 쓰는 학생용 API 두 개.
+    - `GET /learningx/api/v1/courses/{id}/attendance_items?include_detail=true` → `attendance_items[]`(item_id, title, week_position, use_attendance, item_content_type, unlock_at/due_at/late_at/lock_at). 파라미터 없이 부르면 500이 난다.
+    - `GET /learningx/api/v1/courses/{id}/attendance_items/summary?only_use_attendance=true` → `attendance_summaries{item_id: {attendance_status}}`. 값은 `attendance`(출석), `none`(아직), `absent`(결석).
+    - `item_content_type`이 `commons`면 영상이고, 스마트출결(대면 출석) 항목도 섞여 있으니 걸러야 한다. (`learning-activity-status/*`는 403 교수용이라 쓰지 않는다.)
+    - 처음에 열었던 'Ch1.서론-1-screen'은 `attendance`(출석)으로 정상이다.
+  - 주의: 첫 시험 때 영상 항목 하나('데이터베이스 · Ch1.서론-1-screen', 출결 항목 1254608)를 sessionless로 열었다(응답 500). 출결 기록에 영향이 있었는지는 확인하지 못했다. 이후에는 영상 항목을 직접 열지 않는다.
+- 대안: 영상 기한을 구글 캘린더에 직접 적고 키워드로 읽기(시험과 같은 방식). 로그인 쿠키나 학교 계정 비밀번호를 쓰는 방식은 쓰지 않는다.
 
 **남은 확인 사항**
 - 이미 LMS ID로 연결된 항목의 마감이 HY-ON에서 사라지면 "마감 변경 → 마감 없음" 알림이 간다. 원래 있던 동작이라 그대로 뒀다.

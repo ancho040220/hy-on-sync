@@ -6,7 +6,7 @@ HY-ON(한양대 LMS)의 과제와 퀴즈를 노션 과제 플래너에 자동으
 | --- | --- | --- | --- |
 | 과제, 퀴즈 | 등록·갱신 (노션 캘린더에서 보임, 구글 캘린더 'HY-ON 과제'에 그대로 비춤) | 신규, D-3, D-1, 마감 변경 | HY-ON (Canvas API) |
 | 시험 | — | D-3, D-1 | 구글 캘린더 (직접 등록, 제목에 "시험"이나 "고사") |
-| 동영상 강의 | — | 신규, D-3, D-1 | HY-ON (LearningX, **미구현**) |
+| 동영상 강의 | — | 신규, D-3, D-1 (출석 안 한 것만) | HY-ON LearningX (비공식 API) |
 
 ## 구조
 
@@ -20,6 +20,7 @@ src/hysync/
   gcal_writer.py 구글 캘린더 'HY-ON 과제' 캘린더에 과제DB 비추기 (서비스 계정)
   kakao.py       카카오톡 나에게 보내기, 리프레시 토큰 갱신
   messages.py    알림을 200자 이하 메시지로 묶기
+  learningx.py   LearningX 출석 영상의 기한·출석 여부 (Canvas sessionless launch로 토큰을 받음)
   state.py       시험·동영상 알림 기록 (state/alert_log.json)
   sync.py        1단계 진입점
   mcp_server.py  2단계 MCP 서버 (읽기 전용: list_upcoming, get_item)
@@ -128,5 +129,5 @@ claude mcp add hy-on -e HYSYNC_ENV_FILE=/경로/hy-on-sync/.env -- /경로/.venv
 
 ## 아직 확인하지 못한 것
 
-- 동영상 강의 기한: `CanvasClient.fetch_videos()`가 지금은 빈 목록을 돌려줍니다
+- 동영상 강의: LearningX의 학생용 화면이 쓰는 비공개 API를 읽습니다(영상 목록·기한 `attendance_items`, 출석 여부 `attendance_items/summary`). 학교가 바꾸면 깨질 수 있고, 그때는 영상 알림만 멈추고 실행이 실패로 끝나 메일이 옵니다
 - 새 퀴즈(New Quizzes)는 과제 목록에 `external_tool`로 나와 "과제"로 분류될 수 있습니다 (2026년 2학기에는 새 퀴즈가 없어 확인하지 못했습니다)

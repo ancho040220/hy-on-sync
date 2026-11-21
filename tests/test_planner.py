@@ -118,6 +118,23 @@ def test_new_video_alerts(now):
     assert state["video-1-5"]["sent"] == ["신규"]
 
 
+def test_attended_video_gets_no_alerts(now):
+    video = Item("video-1-5", KIND_VIDEO, "데이터베이스", "Ch6.ER모델1", now + timedelta(hours=20), done=True)
+    alerts, state = plan_state([video], {}, now)
+    assert alerts == []
+    assert state["video-1-5"]["sent"] == ["신규"]  # 본 것으로 기록해 두고 다시 알리지 않는다
+
+    alerts, _ = plan_state([video], state, now + timedelta(hours=1))
+    assert alerts == []
+
+
+def test_new_video_already_past_due_gets_no_alert(now):
+    old = Item("video-1-6", KIND_VIDEO, "데이터베이스", "Ch1.서론-1", now - timedelta(hours=2))
+    alerts, state = plan_state([old], {}, now)
+    assert alerts == []
+    assert state["video-1-6"]["sent"] == ["신규"]
+
+
 def test_new_exam_has_no_new_alert_but_gets_stage(now):
     far = Item("exam-a", KIND_EXAM, "", "데이터베이스 기말시험", now + timedelta(days=10), all_day=True)
     near = Item("exam-b", KIND_EXAM, "", "시스템 프로그래밍 기말시험", now + timedelta(hours=30))
