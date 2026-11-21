@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from .dates import due_stage, parse_iso, same_instant, start_date
 from .models import (
     DUE_STAGES,
-    KIND_EXAM,
+    KIND_VIDEO,
     NOTION_KINDS,
     SENT_NEW,
     GcalEvent,
@@ -149,10 +149,10 @@ def plan_state(
 ) -> tuple[list[Alert], dict[str, dict]]:
     """시험·동영상 알림을 정하고 새 상태를 돌려준다.
 
-    - 동영상: 처음 보이면 '새 동영상' 알림. 시험은 내가 직접 등록하므로 신규 알림이 없다.
-    - 동영상이 이미 출석 처리됐거나(done) 처음 봤을 때 이미 마감이 지났으면 알림 없이 기록만 한다.
-    - D-3·D-1: 구간에 처음 들어가면 한 번만.
-    - 마감이 바뀌면 D-3·D-1 기록만 초기화한다 (변경 알림은 과제·퀴즈만).
+    - 신규 알림은 없다. 시험은 내가 직접 등록하고, 동영상은 학기 초에 한꺼번에 열리기 때문이다.
+    - 시험: D-3·D-1. 동영상: D-7·D-3·D-1. 구간에 처음 들어가면 한 번만.
+    - 동영상이 이미 출석 처리됐으면(done) 알리지 않는다. 마감이 지난 항목은 단계가 없어 알리지 않는다.
+    - 마감이 바뀌면 D-7·D-3·D-1 기록을 초기화한다 (변경 알림은 과제·퀴즈만).
     - 마감이 keep_days일 넘게 지난 기록은 지운다.
     """
     alerts: list[Alert] = []
@@ -162,27 +162,14 @@ def plan_state(
         if item.due_at is None:
             continue
         entry = state.get(item.lms_id)
-        stage = due_stage(item.due_at, now)
+        stage = due_stage(item.due_at, now, week=item.kind == KIND_VIDEO)
 
-        if entry is None:
-            sent: set[str] = set()
-            if item.kind != KIND_EXAM and (item.done or item.due_at < now):
-                sent.add(SENT_NEW)  # 이미 봤거나 지난 영상: 알리지 않고 본 것으로 기록
-            elif item.kind != KIND_EXAM:
-                alerts.append(Alert(_new_tag(item), item))
-                sent.add(SENT_NEW)
-                if stage:
-                    sent.add(stage)  # 신규 알림에 마감이 이미 들어 있으므로
-            elif stage:
-                alerts.append(Alert(stage, item))
-                sent.add(stage)
-        else:
-            sent = set(entry.get("sent", []))
-            if not same_instant(parse_iso(entry.get("due")), item.due_at):
-                sent -= set(DUE_STAGES)
-            if stage and stage not in sent and not item.done:
-                alerts.append(Alert(stage, item))
-                sent.add(stage)
+        sent: set[str] = set(entry.get("sent", [])) if entry else set()
+        if entry and not same_instant(parse_iso(entry.get("due")), item.due_at):
+            sent -= set(DUE_STAGES)
+        if stage and stage not in sent and not item.done:
+            alerts.append(Alert(stage, item))
+            sent.add(stage)
 
         if item.due_at >= now - timedelta(days=keep_days):
             new_state[item.lms_id] = {"due": item.due_at.isoformat(), "sent": sorted(sent)}

@@ -15,9 +15,10 @@ NOTION_KINDS = frozenset({KIND_ASSIGNMENT, KIND_QUIZ})
 
 # 노션 '알림 기록'(다중 선택)과 상태 파일에 저장하는 값
 SENT_NEW = "신규"
+SENT_D7 = "D-7"  # 동영상만
 SENT_D3 = "D-3"
 SENT_D1 = "D-1"
-DUE_STAGES = (SENT_D3, SENT_D1)
+DUE_STAGES = (SENT_D7, SENT_D3, SENT_D1)
 
 
 @dataclass(frozen=True)

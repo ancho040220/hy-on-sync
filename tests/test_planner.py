@@ -111,18 +111,31 @@ def test_title_change_updates_without_alert(now):
 
 # ---- 상태 파일 대상(시험·동영상) ----
 
-def test_new_video_alerts(now):
-    video = Item("video-1-5", KIND_VIDEO, "데이터베이스", "13주차 강의", now + timedelta(days=5))
+def test_video_gets_d7_d3_d1_once_each_and_no_new_alert(now):
+    due = now + timedelta(days=6, hours=12)
+    video = Item("video-1-5", KIND_VIDEO, "데이터베이스", "Ch10.빅데이터1", due)
+
     alerts, state = plan_state([video], {}, now)
-    assert [a.tag for a in alerts] == ["새 동영상"]
-    assert state["video-1-5"]["sent"] == ["신규"]
+    assert [a.tag for a in alerts] == ["D-7"]  # '새 동영상' 알림은 없다
+    alerts, state = plan_state([video], state, now + timedelta(hours=1))
+    assert alerts == []
+    alerts, state = plan_state([video], state, due - timedelta(hours=60))
+    assert [a.tag for a in alerts] == ["D-3"]
+    alerts, state = plan_state([video], state, due - timedelta(hours=20))
+    assert [a.tag for a in alerts] == ["D-1"]
+    assert state["video-1-5"]["sent"] == ["D-1", "D-3", "D-7"]
+
+
+def test_video_far_from_due_gets_nothing_yet(now):
+    video = Item("video-1-7", KIND_VIDEO, "데이터베이스", "Ch10.빅데이터2", now + timedelta(days=10))
+    alerts, state = plan_state([video], {}, now)
+    assert alerts == [] and state["video-1-7"]["sent"] == []
 
 
 def test_attended_video_gets_no_alerts(now):
     video = Item("video-1-5", KIND_VIDEO, "데이터베이스", "Ch6.ER모델1", now + timedelta(hours=20), done=True)
     alerts, state = plan_state([video], {}, now)
     assert alerts == []
-    assert state["video-1-5"]["sent"] == ["신규"]  # 본 것으로 기록해 두고 다시 알리지 않는다
 
     alerts, _ = plan_state([video], state, now + timedelta(hours=1))
     assert alerts == []
@@ -130,9 +143,14 @@ def test_attended_video_gets_no_alerts(now):
 
 def test_new_video_already_past_due_gets_no_alert(now):
     old = Item("video-1-6", KIND_VIDEO, "데이터베이스", "Ch1.서론-1", now - timedelta(hours=2))
-    alerts, state = plan_state([old], {}, now)
+    alerts, _ = plan_state([old], {}, now)
     assert alerts == []
-    assert state["video-1-6"]["sent"] == ["신규"]
+
+
+def test_exam_has_no_d7(now):
+    exam = Item("exam-c", KIND_EXAM, "", "운영체제 기말고사", now + timedelta(days=5))
+    alerts, _ = plan_state([exam], {}, now)
+    assert alerts == []
 
 
 def test_new_exam_has_no_new_alert_but_gets_stage(now):
