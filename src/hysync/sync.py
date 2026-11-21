@@ -42,6 +42,7 @@ class Result:
     kakao_ok: bool = True
     gcal_ok: bool = True
     gcal_changes: int = 0
+    videos_ok: bool = True
 
 
 def run(
@@ -64,7 +65,12 @@ def run(
 
     # 1) 읽기
     items = canvas.fetch_items(cfg.course_aliases)
-    videos = canvas.fetch_videos()
+    videos_ok = True
+    try:  # LearningX는 비공식 API라 깨질 수 있다. 실패해도 나머지는 계속한다.
+        videos = canvas.fetch_videos(cfg.course_aliases)
+    except Exception as exc:
+        log.error("동영상(LearningX) 읽기 실패: %s: %s", type(exc).__name__, exc)
+        videos, videos_ok = [], False
     if exams is None:
         exams = fetch_exams(cfg.gcal_ics_url, cfg.exam_keyword, now) if cfg.gcal_ics_url else []
     records = notion.query_all()
@@ -74,8 +80,10 @@ def run(
     # 2) 계획 (순수 함수)
     plan = plan_notion(items, records, now, cfg.start_offset_days)
     state_alerts, new_state = plan_state(videos + exams, state, now)
+    if not videos_ok:  # 영상 기록을 지우면 다음 성공 때 '새 동영상' 알림이 다시 가므로 그대로 둔다
+        new_state.update({k: v for k, v in state.items() if k.startswith("video-") and k not in new_state})
     messages = format_messages(plan.alerts + state_alerts)
-    result = Result(messages=messages)
+    result = Result(messages=messages, videos_ok=videos_ok)
 
     if dry_run:
         _print_plan(plan, messages)
@@ -180,8 +188,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     result = run(load_config(), dry_run=args.dry_run)
-    # 카카오 전송·구글 캘린더 미러 실패는 실패로 끝내 GitHub Actions가 메일로 알려주게 한다
-    return 0 if (result.kakao_ok and result.gcal_ok) else 1
+    # 카카오 전송·구글 캘린더 미러·동영상 읽기 실패는 실패로 끝내 GitHub Actions가 메일로 알려주게 한다
+    return 0 if (result.kakao_ok and result.gcal_ok and result.videos_ok) else 1
 
 
 if __name__ == "__main__":

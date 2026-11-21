@@ -53,20 +53,23 @@ class CanvasClient:
         aliases = aliases or {}
         items: list[Item] = []
         for course in self.courses():
-            raw = course.get("name", "")
-            short = re.sub(r"^\d{6}HY\d+_", "", raw)  # '202620HY24987_데이터베이스' → '데이터베이스'
-            name = aliases.get(raw) or aliases.get(short, short)
+            name = course_name(course, aliases)
             for a in self.assignments(course["id"]):
                 items.append(assignment_to_item(a, course["id"], name))
         return items
 
-    def fetch_videos(self) -> list[Item]:
-        """동영상 강의 출석 기한.
+    def fetch_videos(self, aliases: dict[str, str] | None = None) -> list[Item]:
+        """출석 인정 동영상의 기한과 출석 여부 (LearningX, learningx.py 참고)."""
+        from .learningx import LearningXClient  # 순환 import를 피한다
 
-        TODO: LearningX(동영상 학습) 데이터는 Canvas 표준 API에 나오지 않을 수 있다.
-        1주 차에 HY-ON에서 네트워크 요청을 확인한 뒤 구현한다. 지금은 빈 목록.
-        """
-        return []
+        return LearningXClient(self, str(self.http.base_url).rstrip("/")).fetch_videos(aliases or {})
+
+
+def course_name(course: dict, aliases: dict[str, str]) -> str:
+    """'202620HY24987_데이터베이스' → '데이터베이스'. COURSE_ALIASES가 있으면 그게 우선한다."""
+    raw = course.get("name", "")
+    short = re.sub(r"^\d{6}HY\d+_", "", raw)
+    return aliases.get(raw) or aliases.get(short, short)
 
 
 def assignment_to_item(a: dict, course_id: int, course_name: str) -> Item:
