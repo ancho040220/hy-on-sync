@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from .models import SENT_D1, SENT_D3
+from .models import SENT_D1, SENT_D3, SENT_D7
 
 KST = ZoneInfo("Asia/Seoul")
 WEEKDAYS = "월화수목금토일"
@@ -29,8 +29,8 @@ def start_date(unlock_at: datetime | None, due_at: datetime | None, offset_days:
     return min(candidate, due_at)
 
 
-def due_stage(due_at: datetime | None, now: datetime) -> str | None:
-    """남은 시간이 24시간 이하면 D-1, 72시간 이하면 D-3, 그 밖이나 마감이 지났으면 None."""
+def due_stage(due_at: datetime | None, now: datetime, week: bool = False) -> str | None:
+    """남은 시간이 24시간 이하면 D-1, 72시간 이하면 D-3, (week면) 7일 이하면 D-7, 그 밖이나 지났으면 None."""
     if due_at is None:
         return None
     remaining = due_at - now
@@ -40,6 +40,8 @@ def due_stage(due_at: datetime | None, now: datetime) -> str | None:
         return SENT_D1
     if remaining <= timedelta(hours=72):
         return SENT_D3
+    if week and remaining <= timedelta(days=7):
+        return SENT_D7
     return None
 
 
