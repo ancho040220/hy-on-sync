@@ -4,7 +4,29 @@ from datetime import timedelta, timezone
 from conftest import make_item, make_record
 
 from hysync.models import KIND_EXAM, KIND_QUIZ, KIND_VIDEO, GcalEvent, Item, NotionRecord
-from hysync.planner import desired_events, plan_gcal, plan_notion, plan_state
+from hysync.planner import desired_events, effective_due, plan_gcal, plan_notion, plan_state
+
+
+# ---- 마감일 정하기 ----
+
+def test_effective_due_uses_lock_when_due_missing_for_submittable(now):
+    lock = now + timedelta(hours=15)  # 실습 과제3: 마감일은 비고 제출 가능 종료일만 있음
+    assert effective_due(None, lock, ["online_upload"]) == lock
+
+
+def test_effective_due_ignores_lock_for_grade_column(now):
+    assert effective_due(None, now + timedelta(days=30), ["none"]) is None  # 중간고사 성적 칸
+    assert effective_due(None, now + timedelta(days=30), ["not_graded"]) is None
+    assert effective_due(None, now + timedelta(days=30), []) is None
+
+
+def test_effective_due_keeps_due_when_present(now):
+    due, lock = now + timedelta(days=2), now + timedelta(days=5)  # 종료일은 지각 제출 기간일 수 있다
+    assert effective_due(due, lock, ["online_upload"]) == due
+
+
+def test_effective_due_none_without_dates():
+    assert effective_due(None, None, ["online_quiz"]) is None  # TrustLock 테스트
 
 
 # ---- 노션 대상(과제·퀴즈) ----

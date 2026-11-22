@@ -51,6 +51,24 @@ class NotionPlan:
     alerts: list[Alert] = field(default_factory=list)
 
 
+# 제출하지 않는 성적 칸(중간고사 점수 등). 날짜가 붙어 있어도 과제로 보지 않는다.
+NO_SUBMISSION_TYPES = frozenset({"none", "not_graded", "on_paper"})
+
+
+def effective_due(due_at: datetime | None, lock_at: datetime | None, submission_types: list[str] | None) -> datetime | None:
+    """과제의 실제 마감. 마감일이 비어 있고 제출하는 과제면 제출 가능 종료일(lock_at)을 마감으로 본다.
+
+    교수님이 마감일 없이 '이용 가능 종료일'만 넣는 경우가 있다(예: 데이터베이스 실습 과제3).
+    마감일이 있으면 종료일은 무시한다 (종료일은 지각 제출 기간인 경우가 많다).
+    """
+    if due_at is not None:
+        return due_at
+    types = set(submission_types or [])
+    if lock_at is not None and types and not types <= NO_SUBMISSION_TYPES:
+        return lock_at
+    return None
+
+
 def _new_tag(item: Item) -> str:
     return f"새 {item.kind}"
 
