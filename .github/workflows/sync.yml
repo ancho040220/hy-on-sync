@@ -2,8 +2,10 @@ name: sync
 
 on:
   schedule:
-    # KST 08:00, 14:00, 21:00 (= UTC 23:00, 05:00, 12:00). 예약 실행은 수십 분 늦을 수 있다.
-    - cron: "0 23,5,12 * * *"
+    # KST 07:37부터 23:37까지 2시간마다 (= UTC 22:37, 00:37, 02:37 ... 14:37), 하루 9번.
+    # GitHub는 정각(:00)에 몰리는 예약을 늦추거나 버리므로 37분에 둔다. 몇 번 빠져도 하루 여러 번 돌고,
+    # 같은 알림은 기록(노션 '알림 기록', state/alert_log.json)으로 한 번만 보낸다.
+    - cron: "37 0,2,4,6,8,10,12,14,22 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -67,6 +69,7 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add state/
             git commit -m "chore: update alert log"
+            git pull --rebase --autostash   # 실행 중 main에 다른 커밋이 들어와도 기록 push가 막히지 않게
             git push
           fi
 
