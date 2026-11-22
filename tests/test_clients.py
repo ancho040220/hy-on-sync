@@ -31,6 +31,15 @@ def test_assignment_to_item_classifies_quiz_and_converts_dates():
     assert split_lms_id(item.lms_id) == (12, 77)
 
 
+def test_assignment_without_due_uses_lock_but_grade_column_does_not():
+    lab3 = {"id": 2840155, "name": "실습 과제3", "due_at": None, "unlock_at": "2026-11-15T15:00:00Z",
+            "lock_at": "2026-11-22T14:59:59Z", "submission_types": ["online_upload"]}
+    midterm = {"id": 2836585, "name": "중간고사", "due_at": None, "unlock_at": "2026-11-05T15:00:00Z",
+               "lock_at": "2026-12-22T14:59:59Z", "submission_types": ["none"]}
+    assert assignment_to_item(lab3, 214032, "데이터베이스").due_at == datetime(2026, 11, 22, 23, 59, 59, tzinfo=KST)
+    assert assignment_to_item(midterm, 214032, "데이터베이스").due_at is None
+
+
 def test_canvas_follows_pagination_and_aliases():
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path

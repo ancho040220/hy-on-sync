@@ -13,6 +13,7 @@ import httpx
 
 from .dates import parse_iso
 from .models import KIND_ASSIGNMENT, KIND_QUIZ, Item
+from .planner import effective_due
 
 
 class CanvasClient:
@@ -81,7 +82,7 @@ def assignment_to_item(a: dict, course_id: int, course_name: str) -> Item:
         kind=kind,
         course=course_name,
         title=a.get("name", "").strip(),
-        due_at=parse_iso(a.get("due_at")),
+        due_at=effective_due(parse_iso(a.get("due_at")), parse_iso(a.get("lock_at")), a.get("submission_types")),
         unlock_at=parse_iso(a.get("unlock_at")),
         url=a.get("html_url"),
     )
