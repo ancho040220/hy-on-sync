@@ -1,15 +1,14 @@
-# 인계 노트 (마지막 갱신 2026-11-22)
+# 인계 노트 (마지막 갱신 2026-11-23)
 
-claude.ai 대화에서 계획서와 구현 초안을 만들었고, 2026-11-21~22에 Claude Code에서 실제 서비스 연결부터 GitHub Actions 가동, 구글 캘린더 미러, 동영상 출석 알림, README 정리까지 끝냈다. **1단계(동기화·알림)는 Actions로 2시간마다(KST 07:37~23:37) 돌고 있다.** 남은 것은 아래 '다음에 할 일'이다.
+claude.ai 대화에서 계획서와 구현 초안을 만들었고, 2026-11-21~23에 Claude Code에서 실제 서비스 연결부터 GitHub Actions 가동, 구글 캘린더 미러, 동영상 출석 알림, README 정리, 디스코드 알림과 외부 크론까지 진행했다. 남은 것은 아래 '다음에 할 일'이다.
 
 ## 다음에 할 일
 
-1. **`GH_PAT` Secret 넣기 (2026-12-21 전, 사용자):** 이 저장소 Secrets 쓰기 권한만 준 fine-grained PAT. 카카오 리프레시 토큰이 12/21쯤부터 새로 발급되는데, 이게 없으면 Actions의 토큰 교체 단계가 실패한다. `gh secret set GH_PAT --repo ancho040220/hy-on-sync`.
-2. **예약 실행 확인:** 정각 하루 3번은 1~6시간씩 늦고 한 번은 빠져서(GitHub가 정각 부하로 예약을 늦추거나 버림), 11/22에 37분·2시간마다로 바꿨다. 며칠 동안 `schedule` 실행이 하루 여러 번 생기는지 본다. 그래도 크게 빠지면 외부 크론으로 `workflow_dispatch`를 부르는 방법을 검토한다. 확인: `gh run list --repo ancho040220/hy-on-sync --workflow sync --limit 10`.
-3. **9단계 남은 것 → 12/13:** 데모(스크린샷·짧은 영상, 사용자가 찍음)를 README에 넣기, 저장소 공개 여부 결정(아래 '공개 전환 점검' 참고). README 재작성·설계 결정·구조도는 끝났다.
-4. **알림이 울리는 채널 정하기:** 카톡 '나에게 보내기'는 메모용이라 푸시 알림이 오지 않는다. 카카오 쪽 대안은 막혀 있어서(아래 기록) 텔레그램 봇(추천)이나 디스코드 웹훅을 추가할지 사용자가 정한다. 정하면 `telegram.py` 추가 → 알림을 설정된 채널로 보내기(텔레그램 성공을 알림 성공으로 보고 카톡은 실패해도 넘어가는 안) → 테스트 → Secrets(`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) 순서로 한다.
-5. 선택: 7단계 MCP 서버 등록(사용자가 지금은 하지 않기로 함).
-6. 작업 전에 `git switch main; git pull` (Actions 봇이 `state/alert_log.json`을 main에 커밋한다). 이후 변경은 브랜치 → PR로 한다. 로컬에서는 `--dry-run`만 쓴다(로컬 실제 실행은 오래된 기록 파일로 시험·영상 알림을 다시 보낼 수 있다).
+1. **디스코드·외부 크론 마무리 (2026-11-23 진행 중):** 코드는 브랜치 `feature/discord-cron`. 사용자가 디스코드 봇 토큰·사용자 ID를 `.env`에 넣으면 → 테스트 DM 1개 → dry-run → PR merge → Secrets(`DISCORD_BOT_TOKEN`, `DISCORD_USER_ID`) → cron-job.org 작업(README '9. 정시 실행') 순서. merge 뒤 하루 동안 `workflow_dispatch` 실행이 정각마다 생기는지 확인한다: `gh run list --repo ancho040220/hy-on-sync --workflow sync --limit 10`.
+2. **cron-job.org용 PAT 만료일 기록:** 만료되면 정시 실행이 조용히 멈춘다(보조 예약 하루 2번만 남음). 만든 뒤 만료일을 여기에 적는다.
+3. **9단계 남은 것 → 12/13:** 데모(스크린샷·짧은 영상, 사용자가 찍음)를 README에 넣기, 저장소 공개 여부 결정(아래 '공개 전환 점검' 참고). 구조도 이미지는 '카카오톡'·'KST 08·14·21시'로 예전 내용이다.
+4. 선택: 7단계 MCP 서버 등록(사용자가 지금은 하지 않기로 함).
+5. 작업 전에 `git switch main; git pull` (Actions 봇이 `state/alert_log.json`을 main에 커밋한다). 이후 변경은 브랜치 → PR로 한다. 로컬에서는 `--dry-run`만 쓴다(로컬 실제 실행은 오래된 기록 파일로 시험·영상 알림을 다시 보낼 수 있다).
 
 ## 지금 상태
 

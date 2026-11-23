@@ -426,3 +426,48 @@ def test_learningx_changed_response_shape_raises_instead_of_silently_misreportin
     with pytest.raises(LearningXError) as exc:
         client.fetch_videos({})
     assert "XN" not in str(exc.value)
+
+
+# ---- 디스코드 봇 DM ----
+
+def _discord(handler):
+    from hysync.discord import DiscordClient
+
+    calls = []
+
+    def wrapped(request):
+        calls.append(request)
+        return handler(request)
+
+    http = httpx.Client(base_url="https://discord.com/api/v10", transport=httpx.MockTransport(wrapped))
+    return DiscordClient("tok", "1234", http=http), calls
+
+
+def test_discord_opens_dm_once_and_sends_each_message():
+    def handler(request):
+        if request.url.path.endswith("/users/@me/channels"):
+            return httpx.Response(200, json={"id": "c1"})
+        return httpx.Response(200, json={"id": "m"})
+
+    client, calls = _discord(handler)
+    client.send_text("[D-1] 데이터베이스 · 실습 과제3 · 11/22(일) 23:59", "https://lms.test")
+    client.send_text("[D-3] 알고리즘 · 과제", "https://lms.test")
+
+    dm = [c for c in calls if c.url.path.endswith("/users/@me/channels")]
+    sends = [c for c in calls if c.url.path.endswith("/channels/c1/messages")]
+    assert len(dm) == 1 and json.loads(dm[0].content) == {"recipient_id": "1234"}
+    assert len(sends) == 2
+    body = json.loads(sends[0].content)
+    assert body["content"].startswith("[D-1] 데이터베이스 · 실습 과제3") and "https://lms.test" in body["content"]
+    assert body["allowed_mentions"] == {"parse": []}
+    assert all(c.headers["Authorization"] == "Bot tok" for c in calls)
+    assert all(c.headers["User-Agent"].startswith("DiscordBot (") for c in calls)
+
+
+def test_discord_error_does_not_leak_token():
+    from hysync.discord import DiscordError
+
+    client, _ = _discord(lambda request: httpx.Response(403, json={"message": "Missing Access tok", "code": 50001}))
+    with pytest.raises(DiscordError) as exc:
+        client.send_text("hi", "https://lms.test")
+    assert "tok" not in str(exc.value) and "403" in str(exc.value)

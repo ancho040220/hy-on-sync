@@ -1,14 +1,14 @@
 # hy-on-sync
 
-HY-ON(한양대 Canvas LMS)의 과제·퀴즈를 노션 과제DB에 자동으로 등록하고, 마감이 다가오면 카카오톡 "나에게 보내기"로 알려 주는 개인 자동화 도구입니다. 노션 과제DB는 구글 캘린더에도 그대로 비춰서 휴대폰 캘린더에서 볼 수 있고, 시험과 동영상 강의 출석 기한도 카톡으로 챙겨 줍니다. GitHub Actions로 KST 07:37부터 23:37까지 2시간마다(하루 9번) 돕니다.
+HY-ON(한양대 Canvas LMS)의 과제·퀴즈를 노션 과제DB에 자동으로 등록하고, 마감이 다가오면 디스코드 봇이 DM으로 알려 주는 개인 자동화 도구입니다. 노션 과제DB는 구글 캘린더에도 그대로 비춰서 휴대폰 캘린더에서 볼 수 있고, 시험과 동영상 강의 출석 기한도 알림으로 챙겨 줍니다. GitHub Actions로 돌고, 외부 크론(cron-job.org)이 KST 08~22시 2시간마다 정시에 실행시킵니다.
 
 ## 왜 만들었나
 
-과제는 HY-ON에, 할 일 정리는 노션에, 일정은 구글 캘린더에, 시험 공지는 수업 시간에, 동영상 출석 기한은 LearningX 화면 안에 흩어져 있었습니다. 매번 HY-ON을 열어 과제를 노션에 옮겨 적고 마감을 기억하는 일을 없애는 것이 목표입니다. 한 학기 동안 실제로 쓰면서 확인할 수 있는 개인 도구이자, 외부 서비스 다섯 곳(HY-ON·LearningX·노션·카카오·구글 캘린더)을 하나의 동기화 흐름으로 묶는 포트폴리오 프로젝트입니다.
+과제는 HY-ON에, 할 일 정리는 노션에, 일정은 구글 캘린더에, 시험 공지는 수업 시간에, 동영상 출석 기한은 LearningX 화면 안에 흩어져 있었습니다. 매번 HY-ON을 열어 과제를 노션에 옮겨 적고 마감을 기억하는 일을 없애는 것이 목표입니다. 한 학기 동안 실제로 쓰면서 확인할 수 있는 개인 도구이자, 외부 서비스 다섯 곳(HY-ON·LearningX·노션·디스코드·구글 캘린더)을 하나의 동기화 흐름으로 묶는 포트폴리오 프로젝트입니다.
 
 ## 무엇을 하나
 
-| 항목 | 어디서 읽나 | 노션 과제DB | 구글 캘린더 'HY-ON 과제' | 카카오톡 |
+| 항목 | 어디서 읽나 | 노션 과제DB | 구글 캘린더 'HY-ON 과제' | 알림 (디스코드 DM) |
 | --- | --- | --- | --- | --- |
 | 과제·퀴즈 | HY-ON (Canvas API) | 등록·갱신 | 노션 DB를 그대로 비춤 (완료는 `✓`) | 신규, D-3, D-1, 마감 변경 |
 | 시험 | 구글 캘린더 (직접 등록한 일정, 비공개 iCal) | — | — | D-3, D-1 |
@@ -35,28 +35,29 @@ HY-ON(한양대 Canvas LMS)의 과제·퀴즈를 노션 과제DB에 자동으로
 
 ![hy-on-sync 구조도: 세 곳에서 읽어 동기화 스크립트가 계획, 카카오톡, 노션, 구글 캘린더, 알림 기록 순서로 처리](docs/architecture.png)
 
-노션은 매 실행마다 현재 상태(진행 상태, 알림 기록)를 먼저 읽고 나서 쓰기 때문에 양방향입니다. 카톡을 노션 쓰기보다 먼저 보내고, 실패했을 때 무엇을 남길지 정해 두었습니다. 어느 쪽이 실패해도 실행은 실패(종료 코드 1)로 끝나 GitHub가 메일로 알려 줍니다.
+노션은 매 실행마다 현재 상태(진행 상태, 알림 기록)를 먼저 읽고 나서 쓰기 때문에 양방향입니다. 그림의 '카카오톡' 자리는 지금 디스코드 DM입니다. 알림을 노션 쓰기보다 먼저 보내고, 실패했을 때 무엇을 남길지 정해 두었습니다. 어느 쪽이 실패해도 실행은 실패(종료 코드 1)로 끝나 GitHub가 메일로 알려 줍니다.
 
 | 실패한 곳 | 결과 |
 | --- | --- |
-| 카카오톡 전송 | D-3·D-1 기록을 남기지 않아 다음 실행 때 다시 보냅니다('새 과제'는 다시 보내지 않음) |
-| 구글 캘린더 미러 | 카톡·노션·상태 저장은 그대로 합니다. 다음 실행에서 처음부터 다시 비교해 저절로 복구됩니다 |
+| 알림(디스코드) 전송 | D-3·D-1 기록을 남기지 않아 다음 실행 때 다시 보냅니다('새 과제'는 다시 보내지 않음) |
+| 구글 캘린더 미러 | 알림·노션·상태 저장은 그대로 합니다. 다음 실행에서 처음부터 다시 비교해 저절로 복구됩니다 |
 | LearningX(동영상) | 영상 알림만 건너뛰고 나머지는 그대로 돕니다. 기존 영상 알림 기록은 유지합니다 |
 
 ## 설계 결정
 
 | 결정 | 이유 |
 | --- | --- |
-| **규칙은 `planner.py`의 순수 함수에만 둔다** | 네트워크 없이 규칙만 테스트할 수 있습니다. 외부 클라이언트는 읽고 쓰기만 하고, "무엇을 만들고 고치고 알릴지"는 전부 계획 함수가 정합니다. 테스트 75개가 모두 가짜 응답으로 돕니다. |
+| **규칙은 `planner.py`의 순수 함수에만 둔다** | 네트워크 없이 규칙만 테스트할 수 있습니다. 외부 클라이언트는 읽고 쓰기만 하고, "무엇을 만들고 고치고 알릴지"는 전부 계획 함수가 정합니다. 테스트 80개가 모두 가짜 응답으로 돕니다. |
 | **보낸 알림 기록을 노션 '알림 기록' 속성에 둔다** | GitHub Actions는 실행이 끝나면 상태가 사라지는데, 하루 여러 번 도는 동안 같은 D-1 알림을 여러 번 보내면 안 됩니다. 별도 DB 없이 중복 발송을 막는 가장 단순한 방법이고, 기록이 과제 옆에 보여서 직접 확인·수정할 수도 있습니다. 노션에 없는 시험·동영상은 저장소의 `state/alert_log.json`에 ID와 마감만 남깁니다(과목명·제목은 저장하지 않음). |
-| **카톡을 노션 쓰기보다 먼저 보낸다** | 노션에 "D-1 보냄"을 먼저 적고 카톡이 실패하면 그 알림은 영영 사라집니다. 카톡이 실패하면 기록을 남기지 않아 다음 실행에서 다시 보냅니다. |
-| **실패를 서로 격리한다** | 구글 캘린더나 LearningX가 실패해도 카톡·노션·상태 저장은 끝까지 하고, 실행만 실패로 끝내 GitHub 메일로 알립니다. 알림이 조용히 멈추는 것이 가장 나쁜 실패라서, LearningX 응답 모양이 바뀌면 빈 값으로 넘어가지 않고 실패하게 했습니다. |
+| **알림을 노션 쓰기보다 먼저 보낸다** | 노션에 "D-1 보냄"을 먼저 적고 알림이 실패하면 그 알림은 영영 사라집니다. 알림이 실패하면 기록을 남기지 않아 다음 실행에서 다시 보냅니다. |
+| **알림은 카톡이 아니라 디스코드 봇 DM** | 카톡 '나에게 보내기'는 메모용이라 휴대폰 알림이 울리지 않습니다. 카카오에서 알림이 울리게 보내려면 친구 메시지(두 번째 계정·검수), 챗봇 Event API(비즈니스 채널·사업자등록·건당 15원), 알림톡(사업자·딜러사)이 필요해 개인에게는 막혀 있습니다. 디스코드 봇 DM은 무료이고 승인 없이 푸시 알림이 옵니다. |
+| **실패를 서로 격리한다** | 구글 캘린더나 LearningX가 실패해도 알림·노션·상태 저장은 끝까지 하고, 실행만 실패로 끝내 GitHub 메일로 알립니다. 알림이 조용히 멈추는 것이 가장 나쁜 실패라서, LearningX 응답 모양이 바뀌면 빈 값으로 넘어가지 않고 실패하게 했습니다. |
 | **시험은 LMS가 아니라 구글 캘린더에서 읽는다** | 시험 날짜는 보통 수업 시간에 공지되고 LMS에 없습니다. 직접 등록한 일정을 비공개 iCal 주소로 읽으면 OAuth 없이 읽기 전용으로 접근할 수 있습니다. |
 | **구글 캘린더에는 전용 캘린더로 직접 쓴다** | 노션 캘린더는 DB 항목을 구글에 쓰지 않고, iCal 구독은 구글이 12~24시간마다만 갱신하며, 자동화 서비스는 노션·구글 권한을 또 하나의 서비스에 넘겨야 합니다. 서비스 계정으로 전용 캘린더에 쓰고, 일정 ID를 노션 페이지 ID로 고정해 중복을 막고, 스크립트가 만든 표시가 있는 일정만 지워서 캘린더 ID를 잘못 넣어도 개인 일정은 안전합니다. |
 | **동영상은 Canvas 공식 기능으로 LearningX 토큰을 받는다** | LearningX는 Canvas 토큰을 받지 않습니다. 학교 비밀번호나 브라우저 쿠키를 저장하는 대신, Canvas 공식 API인 sessionless launch로 과목 메뉴 도구를 열어 토큰을 받고, 학생용 화면이 쓰는 읽기 API만 부릅니다. 출석 기록에 영향이 없도록 영상 항목은 절대 열지 않습니다. |
 | **실제 데이터를 보고 규칙을 고쳤다** | 첫 연결에서 HY-ON 과제 36건 중 대부분이 지난 과제이거나 마감 없는 성적 칸이라, 그대로 두면 첫 실행에 알림이 쏟아질 상황이었습니다. "마감이 없거나 지난 항목은 만들지 않기", "학기 코드 떼기", "출석했거나 지난 영상은 알리지 않기"는 모두 실제 응답을 확인한 뒤 테스트부터 추가해 바꾼 규칙입니다. |
-| **서버 대신 GitHub Actions** | 하루 몇 번 도는 개인 도구라 상시 서버가 필요 없습니다. 무료이고, 비밀값은 Secrets로, 실패 알림은 메일로 받습니다. 카카오 리프레시 토큰이 새로 발급되면 워크플로가 Secret을 직접 교체합니다. |
-| **예약 실행은 정각을 피해 2시간마다** | GitHub는 예약 실행을 정각(:00)에 몰리는 부하 때문에 늦추거나 버립니다. 처음엔 하루 3번 정각이었는데 1~6시간씩 늦고 한 번은 아예 빠져서, 37분에 2시간마다(하루 9번)로 바꿨습니다. 몇 번 빠져도 하루 여러 번 돌고, 중복 알림은 기록으로 막힙니다. |
+| **서버 대신 GitHub Actions** | 하루 몇 번 도는 개인 도구라 상시 서버가 필요 없습니다. 무료이고, 비밀값은 Secrets로, 실패 알림은 메일로 받습니다. |
+| **정시 실행은 외부 크론이 맡는다** | GitHub 예약 실행은 부하가 몰리면 늦추거나 버립니다. 하루 3번 정각은 1~6시간씩 늦고 한 번은 빠졌고, 37분·2시간마다로 바꿔도 여전히 늦거나 빠졌습니다. 그래서 cron-job.org가 정시에 '수동 실행' API를 부르게 하고(부르면 바로 돎), GitHub 예약은 하루 2번 보조로만 둡니다. 겹쳐 돌아도 중복 알림은 기록으로 막힙니다. |
 | **노션 API는 `httpx`로 직접, 버전 고정** | 의존성을 줄이고, API 버전(2022-06-28)을 고정해 노션 쪽 변경에 흔들리지 않게 했습니다. |
 
 ## 구조
@@ -71,12 +72,13 @@ src/hysync/
   notion.py      노션 과제DB 읽기·쓰기 (API 버전 2022-06-28 고정)
   gcal.py        구글 캘린더 비공개 iCal에서 시험 읽기
   gcal_writer.py 구글 캘린더 'HY-ON 과제'에 노션 과제DB 비추기 (서비스 계정)
-  kakao.py       카카오톡 나에게 보내기, 리프레시 토큰 갱신
+  discord.py     디스코드 봇 DM 알림
+  kakao.py       (예전 방식) 카카오톡 나에게 보내기, 리프레시 토큰 갱신
   messages.py    알림을 200자 이하 메시지로 묶기
   state.py       시험·동영상 알림 기록 (state/alert_log.json, 과목명·제목은 저장하지 않음)
   config.py      .env / 환경 변수
   mcp_server.py  (선택) HY-ON 조회용 MCP 서버
-.github/workflows/sync.yml   GitHub Actions (KST 07:37~23:37 2시간마다 + 수동 실행)
+.github/workflows/sync.yml   GitHub Actions (외부 크론의 수동 실행 + 보조 예약 하루 2번)
 ```
 
 ## 처음 설정하기
@@ -120,7 +122,18 @@ Python 3.11 이상이면 됩니다(Actions는 3.12).
 
 강의명(학기 코드를 뗀 이름)이 노션 '과목' 이름과 다르면 `COURSE_ALIASES`에 JSON으로 매핑합니다. 예: `{"알고리즘": "알고리즘 설계"}`
 
-### 4. 카카오톡 나에게 보내기
+### 4. 디스코드 봇 DM (알림)
+
+카톡 '나에게 보내기'는 메모용이라 휴대폰 알림이 울리지 않습니다. 그래서 알림은 디스코드 봇이 나에게 DM으로 보냅니다. 디스코드가 설정돼 있으면 카카오는 쓰지 않습니다.
+
+1. [디스코드 개발자 포털](https://discord.com/developers/applications) → New Application(예: `hy-on-sync`) → **Bot** → Reset Token으로 토큰을 받아 `DISCORD_BOT_TOKEN`에 넣습니다. 권한(Intents)은 켤 필요가 없습니다.
+2. **OAuth2 → URL Generator**에서 scope `bot`만 체크(권한 없음)하고, 나온 주소로 **내 서버**에 봇을 초대합니다. 봇과 같은 서버에 있어야 DM을 받을 수 있습니다(새 개인 서버를 만들어도 됩니다).
+3. 디스코드 설정 → 고급 → **개발자 모드**를 켜고, 내 프로필을 우클릭 → **사용자 ID 복사** → `DISCORD_USER_ID`.
+4. 그 서버의 '개인정보 보호 설정'에서 서버 멤버의 DM 허용이 켜져 있는지, 휴대폰 디스코드 앱에서 DM 알림이 켜져 있는지 확인합니다.
+
+### (예전 방식) 카카오톡 나에게 보내기
+
+디스코드를 설정하지 않았을 때만 씁니다. 알림은 울리지 않습니다.
 
 1. [카카오 디벨로퍼스](https://developers.kakao.com) → 내 애플리케이션 → 애플리케이션 추가.
 2. **[앱] > [플랫폼 키] > [REST API 키]**
@@ -138,7 +151,7 @@ Python 3.11 이상이면 됩니다(Actions는 3.12).
    Invoke-RestMethod -Method Post -Uri https://kauth.kakao.com/oauth/token -Body @{grant_type='authorization_code'; client_id='<REST_API_키>'; client_secret='<시크릿>'; redirect_uri='http://localhost:3000/oauth'; code='<코드>'}
    ```
 
-리프레시 토큰은 2달 동안 유효하고 만료 1달 전부터 새로 발급됩니다. Actions가 새 토큰을 받으면 `GH_PAT`로 Secret을 자동 교체합니다(7단계).
+리프레시 토큰은 2달 동안 유효하고 만료 1달 전부터 새로 발급됩니다. 지금 워크플로는 카카오 값을 넘기지 않으므로 Actions에서는 카카오를 쓰지 않습니다.
 
 ### 5. 구글 캘린더: 시험 읽기
 
@@ -164,22 +177,31 @@ Python 3.11 이상이면 됩니다(Actions는 3.12).
 .venv\Scripts\python.exe -m hysync.sync             # 실제 실행
 ```
 
-dry-run은 노션에 만들 항목, 고칠 항목, 보낼 카톡, 구글 캘린더 변경을 보여 줍니다. 계획이 맞는지 확인한 뒤 실제로 실행하고, 바로 한 번 더 dry-run을 돌려 '바뀐 것 없음'이 나오면 중복이 없는 것입니다.
+dry-run은 노션에 만들 항목, 고칠 항목, 보낼 알림, 구글 캘린더 변경을 보여 줍니다. 계획이 맞는지 확인한 뒤 실제로 실행하고, 바로 한 번 더 dry-run을 돌려 '바뀐 것 없음'이 나오면 중복이 없는 것입니다.
 
 ### 8. GitHub Actions
 
-1. **비공개** 저장소에 올립니다. `.env`, `gcal-service-account.json`, `.kakao_refresh_token`은 `.gitignore`에 있습니다.
+1. **비공개** 저장소에 올립니다. `.env`, `gcal-service-account.json`은 `.gitignore`에 있습니다.
 2. Secrets를 넣습니다. `gh`를 쓰면 값을 화면에 띄우지 않고 파일에서 바로 넣을 수 있습니다.
    ```powershell
    gh secret set -f .env --repo <owner>/hy-on-sync
    Get-Content gcal-service-account.json -Raw | gh secret set GCAL_SERVICE_ACCOUNT_JSON --repo <owner>/hy-on-sync
    ```
-   필요한 Secrets: `HYON_BASE_URL`, `HYON_TOKEN`, `NOTION_TOKEN`, `NOTION_DATABASE_ID`, `KAKAO_REST_KEY`, `KAKAO_CLIENT_SECRET`, `KAKAO_REFRESH_TOKEN`, `GCAL_ICS_URL`, `GCAL_TARGET_CALENDAR_ID`, `GCAL_SERVICE_ACCOUNT_JSON`. `COURSE_ALIASES`를 쓰면 Variables에 넣습니다. `EXAM_KEYWORD`와 `START_OFFSET_DAYS`는 워크플로가 넘기지 않으므로 Actions에서는 기본값(`시험,고사`, 7일)으로 돕니다.
-3. `GH_PAT`: 이 저장소의 **Secrets 읽기·쓰기** 권한만 준 fine-grained PAT. 카카오 리프레시 토큰 자동 교체용이며, 토큰을 발급하고 한 달 안에 넣어야 합니다.
-   ```powershell
-   gh secret set GH_PAT --repo <owner>/hy-on-sync
-   ```
-4. Actions 탭 → sync → Run workflow에서 `dry_run`을 체크해 먼저 확인합니다(또는 `gh workflow run sync -f dry_run=true`).
+   필요한 Secrets: `HYON_BASE_URL`, `HYON_TOKEN`, `NOTION_TOKEN`, `NOTION_DATABASE_ID`, `DISCORD_BOT_TOKEN`, `DISCORD_USER_ID`, `GCAL_ICS_URL`, `GCAL_TARGET_CALENDAR_ID`, `GCAL_SERVICE_ACCOUNT_JSON`. `COURSE_ALIASES`를 쓰면 Variables에 넣습니다. `EXAM_KEYWORD`와 `START_OFFSET_DAYS`는 워크플로가 넘기지 않으므로 Actions에서는 기본값(`시험,고사`, 7일)으로 돕니다.
+3. Actions 탭 → sync → Run workflow에서 `dry_run`을 체크해 먼저 확인합니다(또는 `gh workflow run sync -f dry_run=true`).
+
+### 9. 정시 실행: 외부 크론 (cron-job.org)
+
+GitHub 예약 실행은 부하가 몰리면 몇 시간씩 늦거나 빠집니다. 그래서 cron-job.org가 정해진 시각에 GitHub의 '수동 실행(workflow_dispatch)' API를 부르게 합니다. 수동 실행은 부르는 즉시 돕니다. 워크플로의 GitHub 예약은 외부 크론이 멈췄을 때를 위한 보조로 하루 2번(KST 13:47, 21:47)만 남겨 두었습니다.
+
+1. GitHub → Settings → Developer settings → **Fine-grained tokens** → 이 저장소만, 권한은 **Actions: Read and write** 하나. 만료일을 길게 잡고 날짜를 적어 둡니다. 이 토큰은 저장소 Secrets가 아니라 cron-job.org에만 넣습니다.
+2. [cron-job.org](https://cron-job.org)에서 작업을 만듭니다.
+   - URL: `https://api.github.com/repos/<owner>/hy-on-sync/actions/workflows/sync.yml/dispatches`, 방식 **POST**
+   - 헤더: `Authorization: Bearer <토큰>`, `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`
+   - 본문: `{"ref":"main"}` (inputs는 넣지 않습니다. 기본값이 실제 실행입니다)
+   - 시간대 **Asia/Seoul**, 매일 08·10·12·14·16·18·20·22시 정각
+   - **실패 알림 메일을 켭니다.** 토큰이 만료되면 조용히 멈추기 때문입니다.
+3. 'Test run'을 눌러 응답이 **204**인지, `gh run list --workflow sync`에 `workflow_dispatch` 실행이 바로 생기는지 확인합니다.
 
 ## 운영 메모
 
@@ -204,7 +226,7 @@ claude mcp add hy-on -e HYSYNC_ENV_FILE=C:\경로\hy-on-sync\.env -- C:\경로\h
 
 ## 개발
 
-- 테스트: `.venv\Scripts\python.exe -m pytest` (75개, 모두 가짜 응답 기반)
+- 테스트: `.venv\Scripts\python.exe -m pytest` (80개, 모두 가짜 응답 기반)
 - 규칙을 바꿀 때는 `tests/test_planner.py`에 테스트부터 추가하고 `planner.py`만 고칩니다.
 - 외부 서비스에 처음 연결할 때는 `--dry-run`으로 먼저 확인합니다.
 - 계획서: `docs/PLAN.md`, 진행 상황·다음 할 일: `docs/HANDOFF.md`, 구글 캘린더 미러 설계: `docs/superpowers/specs/2026-11-21-gcal-mirror-design.md`
