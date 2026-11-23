@@ -1,4 +1,4 @@
-"""1단계 진입점: LMS·구글 캘린더 → 노션 과제DB + 카카오톡 알림.
+"""1단계 진입점: LMS·구글 캘린더 → 노션 과제DB + 알림(디스코드 봇 DM, 없으면 카카오톡).
 
 사용법:
     python -m hysync.sync --dry-run   # 아무것도 쓰지 않고 계획만 출력 (처음엔 꼭 이걸로)
@@ -19,10 +19,11 @@ import httpx
 from .canvas import CanvasClient
 from .config import Config, load_config
 from .dates import KST, fmt_due
+from .discord import DiscordClient, DiscordError
 from .gcal import fetch_exams
 from .gcal_writer import GcalError, GoogleCalendarClient, load_service_account
 from .kakao import KakaoClient, KakaoError
-from .messages import format_messages
+from .messages import MAX_LEN, format_messages
 from .models import Item
 from .notion import NotionStore
 from .planner import GcalPlan, plan_gcal, plan_notion, plan_state
@@ -39,7 +40,7 @@ class Result:
     created: int = 0
     updated: int = 0
     messages: list[str] = field(default_factory=list)
-    kakao_ok: bool = True
+    notify_ok: bool = True
     gcal_ok: bool = True
     gcal_changes: int = 0
     videos_ok: bool = True
@@ -52,15 +53,14 @@ def run(
     dry_run: bool = False,
     canvas: CanvasClient | None = None,
     notion: NotionStore | None = None,
-    kakao: KakaoClient | None = None,
+    notifier: DiscordClient | KakaoClient | None = None,
     exams: list[Item] | None = None,
     gcal: GoogleCalendarClient | None = None,
 ) -> Result:
     now = now or datetime.now(KST)
     canvas = canvas or CanvasClient(cfg.hyon_base_url, cfg.hyon_token)
     notion = notion or NotionStore(cfg.notion_token, cfg.notion_database_id)
-    if kakao is None and cfg.kakao_enabled:
-        kakao = KakaoClient(cfg.kakao_rest_key, cfg.kakao_client_secret, cfg.kakao_refresh_token)
+    notifier = notifier or make_notifier(cfg)
     mirror_on = gcal is not None or cfg.gcal_mirror_enabled
 
     # 1) 읽기
@@ -82,7 +82,7 @@ def run(
     state_alerts, new_state = plan_state(videos + exams, state, now)
     if not videos_ok:  # 영상 기록을 지우면 다음 성공 때 '새 동영상' 알림이 다시 가므로 그대로 둔다
         new_state.update({k: v for k, v in state.items() if k.startswith("video-") and k not in new_state})
-    messages = format_messages(plan.alerts + state_alerts)
+    messages = format_messages(plan.alerts + state_alerts, getattr(notifier, "max_len", MAX_LEN))
     result = Result(messages=messages, videos_ok=videos_ok)
 
     if dry_run:
@@ -96,24 +96,24 @@ def run(
         return result
 
     # 3) 알림 먼저: 전송이 실패하면 알림 기록을 남기지 않아 다음 실행 때 다시 보낸다.
-    if messages and kakao is not None:
+    if messages and notifier is not None:
         try:
             for text in messages:
-                kakao.send_text(text, cfg.hyon_base_url)
-        except KakaoError as exc:
-            log.error("%s", exc)
-            result.kakao_ok = False
+                notifier.send_text(text, cfg.hyon_base_url)
+        except (KakaoError, DiscordError, httpx.HTTPError) as exc:
+            log.error("알림 전송 실패: %s", exc)
+            result.notify_ok = False
     elif messages:
-        log.warning("카카오 설정이 없어 알림 %d건을 보내지 않았습니다.", len(messages))
-        result.kakao_ok = False
+        log.warning("알림 채널 설정이 없어 알림 %d건을 보내지 않았습니다.", len(messages))
+        result.notify_ok = False
 
     # 4) 노션 쓰기
     for c in plan.creates:
-        sent = c.sent if result.kakao_ok else set()
+        sent = c.sent if result.notify_ok else set()
         notion.create(c.item, c.start, sent)
         result.created += 1
     for u in plan.updates:
-        sent = u.sent if result.kakao_ok else u.record.sent
+        sent = u.sent if result.notify_ok else u.record.sent
         notion.update(u.record.page_id, u.item, u.start, sent)
         result.updated += 1
 
@@ -138,10 +138,10 @@ def run(
             result.gcal_ok = False
 
     # 6) 상태 파일, 새 리프레시 토큰
-    if result.kakao_ok:
+    if result.notify_ok:
         save_state(cfg.state_path, new_state)
-    if kakao is not None and kakao.new_refresh_token:
-        REFRESH_TOKEN_FILE.write_text(kakao.new_refresh_token, encoding="utf-8")
+    if notifier is not None and notifier.new_refresh_token:  # 카카오만 해당
+        REFRESH_TOKEN_FILE.write_text(notifier.new_refresh_token, encoding="utf-8")
         log.info("카카오 리프레시 토큰이 갱신되었습니다. 워크플로가 Secret을 교체합니다.")
 
     log.info(
@@ -151,6 +151,15 @@ def run(
     return result
 
 
+def make_notifier(cfg: Config) -> DiscordClient | KakaoClient | None:
+    """디스코드가 설정돼 있으면 디스코드만, 아니면 카카오, 둘 다 없으면 None."""
+    if cfg.discord_enabled:
+        return DiscordClient(cfg.discord_bot_token, cfg.discord_user_id)
+    if cfg.kakao_enabled:
+        return KakaoClient(cfg.kakao_rest_key, cfg.kakao_client_secret, cfg.kakao_refresh_token)
+    return None
+
+
 def _print_plan(plan, messages: list[str]) -> None:
     print("== 노션에 새로 만들 항목 ==")
     for c in plan.creates:
@@ -158,7 +167,7 @@ def _print_plan(plan, messages: list[str]) -> None:
     print("== 노션에서 고칠 항목 ==")
     for u in plan.updates:
         print(f"  ~ [{u.item.kind}] {u.item.course} · {u.item.title} (알림 기록: {', '.join(sorted(u.sent)) or '없음'})")
-    print("== 보낼 카카오톡 메시지 ==")
+    print("== 보낼 알림 메시지 ==")
     for i, text in enumerate(messages, 1):
         print(f"--- {i} ---\n{text}")
     if not (plan.creates or plan.updates or messages):
@@ -188,8 +197,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     result = run(load_config(), dry_run=args.dry_run)
-    # 카카오 전송·구글 캘린더 미러·동영상 읽기 실패는 실패로 끝내 GitHub Actions가 메일로 알려주게 한다
-    return 0 if (result.kakao_ok and result.gcal_ok and result.videos_ok) else 1
+    # 알림 전송·구글 캘린더 미러·동영상 읽기 실패는 실패로 끝내 GitHub Actions가 메일로 알려주게 한다
+    return 0 if (result.notify_ok and result.gcal_ok and result.videos_ok) else 1
 
 
 if __name__ == "__main__":

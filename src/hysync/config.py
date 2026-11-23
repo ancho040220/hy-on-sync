@@ -33,6 +33,9 @@ class Config:
     kakao_rest_key: str = ""
     kakao_client_secret: str = ""
     kakao_refresh_token: str = ""
+    # 디스코드 봇 DM (설정돼 있으면 카카오 대신 이걸 쓴다. 카톡 '나에게 보내기'는 알림이 울리지 않음)
+    discord_bot_token: str = ""
+    discord_user_id: str = ""
     gcal_ics_url: str = ""
     exam_keyword: str = "시험,고사"
     start_offset_days: int = 7
@@ -46,6 +49,10 @@ class Config:
     @property
     def kakao_enabled(self) -> bool:
         return bool(self.kakao_rest_key and self.kakao_refresh_token)
+
+    @property
+    def discord_enabled(self) -> bool:
+        return bool(self.discord_bot_token and self.discord_user_id)
 
     @property
     def gcal_mirror_enabled(self) -> bool:
@@ -69,6 +76,8 @@ def load_config() -> Config:
         kakao_rest_key=os.environ.get("KAKAO_REST_KEY", ""),
         kakao_client_secret=os.environ.get("KAKAO_CLIENT_SECRET", ""),
         kakao_refresh_token=os.environ.get("KAKAO_REFRESH_TOKEN", ""),
+        discord_bot_token=os.environ.get("DISCORD_BOT_TOKEN", "").strip(),
+        discord_user_id=os.environ.get("DISCORD_USER_ID", "").strip(),
         gcal_ics_url=os.environ.get("GCAL_ICS_URL", ""),
         exam_keyword=os.environ.get("EXAM_KEYWORD") or "시험,고사",
         start_offset_days=int(os.environ.get("START_OFFSET_DAYS", "7")),

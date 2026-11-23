@@ -2,10 +2,10 @@ name: sync
 
 on:
   schedule:
-    # KST 07:37부터 23:37까지 2시간마다 (= UTC 22:37, 00:37, 02:37 ... 14:37), 하루 9번.
-    # GitHub는 정각(:00)에 몰리는 예약을 늦추거나 버리므로 37분에 둔다. 몇 번 빠져도 하루 여러 번 돌고,
-    # 같은 알림은 기록(노션 '알림 기록', state/alert_log.json)으로 한 번만 보낸다.
-    - cron: "37 0,2,4,6,8,10,12,14,22 * * *"
+    # 정시 실행은 외부 크론(cron-job.org)이 KST 08~22시 2시간마다 workflow_dispatch로 부른다.
+    # GitHub 예약은 몇 시간씩 늦거나 빠져서, 외부 크론이 멈췄을 때를 위한 보조로만 하루 2번 둔다
+    # (KST 13:47, 21:47 = UTC 04:47, 12:47). 같은 알림은 기록으로 한 번만 보내므로 겹쳐 돌아도 된다.
+    - cron: "47 4,12 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -45,21 +45,13 @@ jobs:
           HYON_TOKEN: ${{ secrets.HYON_TOKEN }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
-          KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
-          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
-          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          # 알림은 디스코드 봇 DM. 카카오(나에게 보내기)는 알림이 울리지 않아 넘기지 않는다(끔).
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_USER_ID: ${{ secrets.DISCORD_USER_ID }}
           GCAL_ICS_URL: ${{ secrets.GCAL_ICS_URL }}
           GCAL_TARGET_CALENDAR_ID: ${{ secrets.GCAL_TARGET_CALENDAR_ID }}
           COURSE_ALIASES: ${{ vars.COURSE_ALIASES }}
         run: python -m hysync.sync ${{ inputs.dry_run && '--dry-run' || '' }}
-
-      - name: Rotate Kakao refresh token
-        if: always() && hashFiles('.kakao_refresh_token') != ''
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }} # 이 저장소 Secrets 쓰기 권한이 있는 fine-grained PAT
-        run: |
-          gh secret set KAKAO_REFRESH_TOKEN < .kakao_refresh_token
-          rm -f .kakao_refresh_token
 
       - name: Commit alert log
         if: always()

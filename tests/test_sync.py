@@ -88,9 +88,9 @@ def test_run_creates_sends_and_saves_state(tmp_path, now):
     notion = FakeNotion([make_record(near, start=near.due_at - timedelta(days=7), sent={"신규"})])
     kakao = FakeKakao()
 
-    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([new, near]), notion=notion, kakao=kakao, exams=[exam])
+    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([new, near]), notion=notion, notifier=kakao, exams=[exam])
 
-    assert result.kakao_ok and result.created == 1 and result.updated == 1
+    assert result.notify_ok and result.created == 1 and result.updated == 1
     assert notion.created == [("assignment-1-10", {"신규"})]
     assert notion.updated == [("page-assignment-1-20", {"신규", "D-3"})]
     text = "\n".join(kakao.sent)
@@ -103,9 +103,9 @@ def test_run_does_not_record_alerts_when_kakao_fails(tmp_path, now):
     record = make_record(near, start=near.due_at - timedelta(days=7), sent={"신규"})
     notion = FakeNotion([record])
 
-    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([near]), notion=notion, kakao=FakeKakao(fail=True), exams=[])
+    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([near]), notion=notion, notifier=FakeKakao(fail=True), exams=[])
 
-    assert not result.kakao_ok
+    assert not result.notify_ok
     assert notion.updated == [("page-assignment-1-10", {"신규"})]  # D-3 기록을 남기지 않아 다음에 다시 보낸다
     assert not (tmp_path / "alert_log.json").exists()
 
@@ -113,7 +113,7 @@ def test_run_does_not_record_alerts_when_kakao_fails(tmp_path, now):
 def test_dry_run_writes_nothing(tmp_path, now, capsys):
     notion = FakeNotion([])
     kakao = FakeKakao()
-    run(cfg(tmp_path), now=now, dry_run=True, canvas=FakeCanvas([make_item(due=now + timedelta(days=2))]), notion=notion, kakao=kakao, exams=[])
+    run(cfg(tmp_path), now=now, dry_run=True, canvas=FakeCanvas([make_item(due=now + timedelta(days=2))]), notion=notion, notifier=kakao, exams=[])
     out = capsys.readouterr().out
     assert "노션에 새로 만들 항목" in out and "[새 과제]" in out
     assert notion.created == [] and kakao.sent == []
@@ -126,7 +126,7 @@ def test_run_mirrors_notion_to_gcal_after_writes(tmp_path, now):
     notion = FakeNotion([], after_write=[make_record(new, start=new.due_at - timedelta(days=7))])
     gcal = FakeGcal()
 
-    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([new]), notion=notion, kakao=FakeKakao(), exams=[], gcal=gcal)
+    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([new]), notion=notion, notifier=FakeKakao(), exams=[], gcal=gcal)
 
     assert notion.queries == 2
     assert [e.summary for e in gcal.created] == ["시스템 프로그래밍 · Lab 3"]
@@ -135,7 +135,7 @@ def test_run_mirrors_notion_to_gcal_after_writes(tmp_path, now):
 
 def test_run_skips_requery_when_nothing_written(tmp_path, now):
     notion = FakeNotion([])
-    run(cfg(tmp_path), now=now, canvas=FakeCanvas([]), notion=notion, kakao=FakeKakao(), exams=[], gcal=FakeGcal())
+    run(cfg(tmp_path), now=now, canvas=FakeCanvas([]), notion=notion, notifier=FakeKakao(), exams=[], gcal=FakeGcal())
     assert notion.queries == 1
 
 
@@ -143,10 +143,10 @@ def test_gcal_failure_keeps_state_and_kakao_and_marks_failure(tmp_path, now):
     exam = Item("exam-a", KIND_EXAM, "", "데이터베이스 기말시험", now + timedelta(hours=20))
     kakao = FakeKakao()
 
-    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([]), notion=FakeNotion([]), kakao=kakao, exams=[exam],
+    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([]), notion=FakeNotion([]), notifier=kakao, exams=[exam],
                  gcal=FakeGcal(fail=True))
 
-    assert result.kakao_ok and not result.gcal_ok
+    assert result.notify_ok and not result.gcal_ok
     assert kakao.sent
     assert load_state(tmp_path / "alert_log.json")["exam-a"]["sent"] == ["D-1"]
 
@@ -156,7 +156,7 @@ def test_dry_run_prints_gcal_plan_without_writing(tmp_path, now, capsys):
     notion = FakeNotion([make_record(item, start=item.due_at - timedelta(days=7), sent={"신규"})])
     gcal = FakeGcal()
 
-    run(cfg(tmp_path), now=now, dry_run=True, canvas=FakeCanvas([item]), notion=notion, kakao=FakeKakao(), exams=[],
+    run(cfg(tmp_path), now=now, dry_run=True, canvas=FakeCanvas([item]), notion=notion, notifier=FakeKakao(), exams=[],
         gcal=gcal)
 
     out = capsys.readouterr().out
@@ -166,7 +166,7 @@ def test_dry_run_prints_gcal_plan_without_writing(tmp_path, now, capsys):
 
 def test_run_without_gcal_config_skips_mirror(tmp_path, now, monkeypatch):
     monkeypatch.chdir(tmp_path)  # 프로젝트 폴더의 실제 키 파일을 보지 않게
-    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([]), notion=FakeNotion([]), kakao=FakeKakao(), exams=[])
+    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([]), notion=FakeNotion([]), notifier=FakeKakao(), exams=[])
     assert result.gcal_ok and result.gcal_changes == 0
 
 
@@ -198,14 +198,14 @@ def test_broken_key_file_does_not_block_kakao_or_state(tmp_path, now):
                gcal_target_calendar_id="cal@group.calendar.google.com", gcal_service_account_file=key)
     kakao = FakeKakao()
 
-    result = run(c, now=now, canvas=FakeCanvas([]), notion=FakeNotion([]), kakao=kakao, exams=[_exam_alert_setup(now)])
+    result = run(c, now=now, canvas=FakeCanvas([]), notion=FakeNotion([]), notifier=kakao, exams=[_exam_alert_setup(now)])
 
-    assert kakao.sent and result.kakao_ok and not result.gcal_ok
+    assert kakao.sent and result.notify_ok and not result.gcal_ok
     assert load_state(tmp_path / "alert_log.json")["exam-a"]["sent"] == ["D-1"]
 
 
 def test_unexpected_gcal_exception_keeps_state(tmp_path, now):
-    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([]), notion=FakeNotion([]), kakao=FakeKakao(),
+    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([]), notion=FakeNotion([]), notifier=FakeKakao(),
                  exams=[_exam_alert_setup(now)], gcal=BrokenGcal())
     assert not result.gcal_ok
     assert load_state(tmp_path / "alert_log.json")["exam-a"]["sent"] == ["D-1"]
@@ -222,7 +222,7 @@ def test_notion_requery_failure_keeps_state(tmp_path, now):
             return self.records
 
     new = make_item(due=now + timedelta(days=5))
-    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([new]), notion=FailingRequery([]), kakao=FakeKakao(),
+    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([new]), notion=FailingRequery([]), notifier=FakeKakao(),
                  exams=[_exam_alert_setup(now)], gcal=FakeGcal())
     assert result.created == 1 and not result.gcal_ok
     assert load_state(tmp_path / "alert_log.json")["exam-a"]["sent"] == ["D-1"]
@@ -235,7 +235,7 @@ def test_one_failing_event_does_not_stop_the_rest(tmp_path, now):
                make_record(b, start=b.due_at - timedelta(days=7), sent={"신규"})]
     gcal = FlakyGcal(existing=[])
 
-    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([a, b]), notion=FakeNotion(records), kakao=FakeKakao(),
+    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([a, b]), notion=FakeNotion(records), notifier=FakeKakao(),
                  exams=[], gcal=gcal)
 
     assert [e.summary for e in gcal.created] == ["시스템 프로그래밍 · Lab 4"]
@@ -243,7 +243,7 @@ def test_one_failing_event_does_not_stop_the_rest(tmp_path, now):
 
 
 def test_dry_run_survives_unexpected_gcal_exception(tmp_path, now, capsys):
-    run(cfg(tmp_path), now=now, dry_run=True, canvas=FakeCanvas([]), notion=FakeNotion([]), kakao=FakeKakao(),
+    run(cfg(tmp_path), now=now, dry_run=True, canvas=FakeCanvas([]), notion=FakeNotion([]), notifier=FakeKakao(),
         exams=[], gcal=BrokenGcal())
     assert "구글 캘린더" in capsys.readouterr().out
 
@@ -258,11 +258,58 @@ def test_video_fetch_failure_keeps_video_state_and_next_run_sends_no_new_alert(t
     save_state(tmp_path / "alert_log.json", {"video-1-5": {"due": video.due_at.isoformat(), "sent": ["신규"]}})
 
     failed = run(cfg(tmp_path), now=now, canvas=FakeCanvas([], videos_fail=True), notion=FakeNotion([]),
-                 kakao=FakeKakao(), exams=[], gcal=FakeGcal())
-    assert not failed.videos_ok and failed.kakao_ok
+                 notifier=FakeKakao(), exams=[], gcal=FakeGcal())
+    assert not failed.videos_ok and failed.notify_ok
     assert "video-1-5" in load_state(tmp_path / "alert_log.json")
 
     kakao = FakeKakao()
     ok = run(cfg(tmp_path), now=now, canvas=FakeCanvas([], videos=[video]), notion=FakeNotion([]),
-             kakao=kakao, exams=[], gcal=FakeGcal())
+             notifier=kakao, exams=[], gcal=FakeGcal())
     assert ok.videos_ok and kakao.sent == []
+
+
+# ---- 알림 채널 (디스코드 우선) ----
+
+class FakeDiscord(FakeKakao):
+    max_len = 1900
+
+    def send_text(self, text, link):
+        if self.fail:
+            from hysync.discord import DiscordError
+            raise DiscordError("디스코드 요청 실패 (403): channels")
+        self.sent.append(text)
+
+
+def test_discord_failure_does_not_record_alerts(tmp_path, now):
+    near = make_item(due=now + timedelta(hours=30))
+    record = make_record(near, start=near.due_at - timedelta(days=7), sent={"신규"})
+    notion = FakeNotion([record])
+
+    result = run(cfg(tmp_path), now=now, canvas=FakeCanvas([near]), notion=notion, notifier=FakeDiscord(fail=True), exams=[])
+
+    assert not result.notify_ok
+    assert notion.updated == [("page-assignment-1-10", {"신규"})]
+
+
+def test_messages_are_split_by_notifier_length(tmp_path, now):
+    a = make_item(lms_id="assignment-1-10", title="Lab 3", due=now + timedelta(days=5))
+    b = make_item(lms_id="assignment-1-11", title="Lab 4", due=now + timedelta(days=6))
+    c = make_item(lms_id="assignment-1-12", title="Lab 5", due=now + timedelta(days=6))
+    discord = FakeDiscord()
+
+    run(cfg(tmp_path), now=now, canvas=FakeCanvas([a, b, c]), notion=FakeNotion([]), notifier=discord, exams=[])
+
+    assert len(discord.sent) == 1 and discord.sent[0].count("[새 과제]") == 3
+
+
+def test_make_notifier_prefers_discord(tmp_path):
+    from hysync.discord import DiscordClient
+    from hysync.kakao import KakaoClient
+    from hysync.sync import make_notifier
+
+    both = Config("https://lms.test", "t", "n", "db", kakao_rest_key="k", kakao_refresh_token="r",
+                  discord_bot_token="bot", discord_user_id="1234")
+    only_kakao = Config("https://lms.test", "t", "n", "db", kakao_rest_key="k", kakao_refresh_token="r")
+    assert isinstance(make_notifier(both), DiscordClient)
+    assert isinstance(make_notifier(only_kakao), KakaoClient)
+    assert make_notifier(Config("https://lms.test", "t", "n", "db")) is None
