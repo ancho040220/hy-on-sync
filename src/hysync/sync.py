@@ -167,7 +167,7 @@ def _print_plan(plan, messages: list[str]) -> None:
     print("== 노션에서 고칠 항목 ==")
     for u in plan.updates:
         print(f"  ~ [{u.item.kind}] {u.item.course} · {u.item.title} (알림 기록: {', '.join(sorted(u.sent)) or '없음'})")
-    print("== 보낼 카카오톡 메시지 ==")
+    print("== 보낼 알림 메시지 ==")
     for i, text in enumerate(messages, 1):
         print(f"--- {i} ---\n{text}")
     if not (plan.creates or plan.updates or messages):
