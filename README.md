@@ -1,6 +1,6 @@
 # hy-on-sync
 
-HY-ON(한양대 Canvas LMS)의 과제·퀴즈를 노션 과제DB에 자동으로 등록하고, 마감이 다가오면 디스코드 봇이 DM으로 알려 주는 개인 자동화 도구입니다. 노션 과제DB는 구글 캘린더에도 그대로 비춰서 휴대폰 캘린더에서 볼 수 있고, 시험과 동영상 강의 출석 기한도 알림으로 챙겨 줍니다. GitHub Actions로 돌고, 외부 크론(cron-job.org)이 KST 08~22시 2시간마다 정시에 실행시킵니다.
+HY-ON(한양대 Canvas LMS)의 과제·퀴즈를 노션 과제DB에 자동으로 등록하고, 마감이 다가오면 디스코드 봇이 DM으로 알려 주는 개인 자동화 도구입니다. 노션 과제DB는 구글 캘린더에도 그대로 비춰서 휴대폰 캘린더에서 볼 수 있고, 시험과 동영상 강의 출석 기한도 알림으로 챙겨 줍니다. GitHub Actions로 돌고, 외부 크론(cron-job.org)이 2시간마다 정각에 실행시킵니다.
 
 ## 왜 만들었나
 
@@ -194,14 +194,14 @@ dry-run은 노션에 만들 항목, 고칠 항목, 보낼 알림, 구글 캘린�
 
 GitHub 예약 실행은 부하가 몰리면 몇 시간씩 늦거나 빠집니다. 그래서 cron-job.org가 정해진 시각에 GitHub의 '수동 실행(workflow_dispatch)' API를 부르게 합니다. 수동 실행은 부르는 즉시 돕니다. 워크플로의 GitHub 예약은 외부 크론이 멈췄을 때를 위한 보조로 하루 2번(KST 13:47, 21:47)만 남겨 두었습니다.
 
-1. GitHub → Settings → Developer settings → **Fine-grained tokens** → 이 저장소만, 권한은 **Actions: Read and write** 하나. 만료일을 길게 잡고 날짜를 적어 둡니다. 이 토큰은 저장소 Secrets가 아니라 cron-job.org에만 넣습니다.
+1. GitHub → Settings → Developer settings → **Fine-grained tokens** → Repository access는 이 저장소만, 그리고 **Permissions → Add permissions → Actions → Read and write**를 꼭 추가합니다(권한 없이 만들면 비공개 저장소라 404가 납니다). 만료일을 정했다면 적어 둡니다. 이 토큰은 저장소 Secrets가 아니라 cron-job.org에만 넣습니다.
 2. [cron-job.org](https://cron-job.org)에서 작업을 만듭니다.
    - URL: `https://api.github.com/repos/<owner>/hy-on-sync/actions/workflows/sync.yml/dispatches`, 방식 **POST**
-   - 헤더: `Authorization: Bearer <토큰>`, `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`
-   - 본문: `{"ref":"main"}` (inputs는 넣지 않습니다. 기본값이 실제 실행입니다)
-   - 시간대 **Asia/Seoul**, 매일 08·10·12·14·16·18·20·22시 정각
+   - 헤더(Advanced 탭): `Authorization: Bearer <토큰>`(Bearer, 띄어쓰기, 토큰), `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`
+   - 본문: `{"ref":"main"}`만 (inputs는 넣지 않습니다. 기본값이 실제 실행입니다)
+   - 시간대 **Asia/Seoul**, 2시간마다 정각(`0 */2 * * *`). 밤에 울리지 않게 하려면 Custom으로 시간을 고릅니다
    - **실패 알림 메일을 켭니다.** 토큰이 만료되면 조용히 멈추기 때문입니다.
-3. 'Test run'을 눌러 응답이 **204**인지, `gh run list --workflow sync`에 `workflow_dispatch` 실행이 바로 생기는지 확인합니다.
+3. 'Test run'을 눌러 응답이 **204**인지, `gh run list --workflow sync`에 `workflow_dispatch` 실행이 바로 생기는지 확인합니다. 401이면 토큰 값(`Bearer ` 빠짐 등), 404면 토큰의 저장소·Actions 권한을 확인합니다.
 
 ## 운영 메모
 
