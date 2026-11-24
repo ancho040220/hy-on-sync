@@ -13,7 +13,7 @@ HY-ON(한양대 LMS) → 노션 과제DB + 디스코드 봇 DM 알림(1단계), 
 - 동영상 강의: 알림만. LearningX 출석 영상(기한 있는 것)을 읽어 D-7(7일 이하)·D-3·D-1을 보낸다. 신규 알림은 없고, 이미 출석했거나 마감이 지난 영상은 알리지 않는다. LearningX는 비공식 API라 Canvas sessionless launch로 받은 토큰을 쓰고(`learningx.py`), 영상 항목은 절대 열지 않는다. 실패해도 나머지 동기화는 계속하고 영상 알림 기록은 유지한다.
 - 시작일 = 공개일, 없으면 마감 7일 전. 알림 = 신규, D-3(72시간 이하), D-1(24시간 이하), 마감 변경(과제·퀴즈만). 노션에서 '완료'면 D-3·D-1 생략.
 - 스크립트는 노션의 진행 상태와 메모를 건드리지 않는다.
-- 실행: GitHub Actions. 정시 실행은 외부 크론(cron-job.org)이 KST 2시간마다 정각(0·2·…·22시, 하루 12번, 밤에 울려도 괜찮다는 사용자 결정) `workflow_dispatch`를 부른다(fine-grained PAT 'hy-on-sync cron', hy-on-sync의 Actions 읽기·쓰기만, 만료 없음, cron-job.org에만 보관). GitHub 예약은 늦거나 빠져서 보조로 하루 2번(KST 13:47, 21:47)만 둔다. Python 3.12. Notion API는 httpx로 직접, 버전 2022-06-28 고정. MCP는 Python SDK 2.x의 `MCPServer`.
+- 실행: GitHub Actions. 정시 실행은 외부 크론(cron-job.org)이 2시간마다 정각, KST 홀수 시각(1·3·…·23시, 하루 12번, 밤에 울려도 괜찮다는 사용자 결정. cron-job.org 시간대가 UTC인 듯하나 그대로 두기로 함) `workflow_dispatch`를 부른다(fine-grained PAT 'hy-on-sync cron', hy-on-sync의 Actions 읽기·쓰기만, 만료 없음, cron-job.org에만 보관). GitHub 예약은 늦거나 빠져서 보조로 하루 2번(KST 13:47, 21:47)만 둔다. Python 3.12. Notion API는 httpx로 직접, 버전 2022-06-28 고정. MCP는 Python SDK 2.x의 `MCPServer`.
 - 목표: 2026-12-13까지 1·2단계 완성 (기말고사 12월 14일 주 시작). 사용자는 주 5시간 이하로 작업한다.
 
 ## 작업 규칙
