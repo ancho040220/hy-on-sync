@@ -169,10 +169,19 @@ def test_new_video_already_past_due_gets_no_alert(now):
     assert alerts == []
 
 
-def test_exam_has_no_d7(now):
-    exam = Item("exam-c", KIND_EXAM, "", "운영체제 기말고사", now + timedelta(days=5))
-    alerts, _ = plan_state([exam], {}, now)
+def test_exam_gets_d7_d3_d1_once_each(now):
+    due = now + timedelta(days=6, hours=12)
+    exam = Item("exam-c", KIND_EXAM, "", "운영체제 기말고사", due)
+
+    alerts, state = plan_state([exam], {}, now)
+    assert [a.tag for a in alerts] == ["D-7"]
+    alerts, state = plan_state([exam], state, now + timedelta(hours=1))
     assert alerts == []
+    alerts, state = plan_state([exam], state, due - timedelta(hours=60))
+    assert [a.tag for a in alerts] == ["D-3"]
+    alerts, state = plan_state([exam], state, due - timedelta(hours=20))
+    assert [a.tag for a in alerts] == ["D-1"]
+    assert state["exam-c"]["sent"] == ["D-1", "D-3", "D-7"]
 
 
 def test_new_exam_has_no_new_alert_but_gets_stage(now):

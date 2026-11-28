@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from .dates import due_stage, parse_iso, same_instant, start_date
 from .models import (
     DUE_STAGES,
+    KIND_EXAM,
     KIND_VIDEO,
     NOTION_KINDS,
     SENT_NEW,
@@ -168,7 +169,7 @@ def plan_state(
     """시험·동영상 알림을 정하고 새 상태를 돌려준다.
 
     - 신규 알림은 없다. 시험은 내가 직접 등록하고, 동영상은 학기 초에 한꺼번에 열리기 때문이다.
-    - 시험: D-3·D-1. 동영상: D-7·D-3·D-1. 구간에 처음 들어가면 한 번만.
+    - 시험·동영상 모두 D-7·D-3·D-1. 구간에 처음 들어가면 한 번만.
     - 동영상이 이미 출석 처리됐으면(done) 알리지 않는다. 마감이 지난 항목은 단계가 없어 알리지 않는다.
     - 마감이 바뀌면 D-7·D-3·D-1 기록을 초기화한다 (변경 알림은 과제·퀴즈만).
     - 마감이 keep_days일 넘게 지난 기록은 지운다.
@@ -180,7 +181,7 @@ def plan_state(
         if item.due_at is None:
             continue
         entry = state.get(item.lms_id)
-        stage = due_stage(item.due_at, now, week=item.kind == KIND_VIDEO)
+        stage = due_stage(item.due_at, now, week=item.kind in (KIND_VIDEO, KIND_EXAM))
 
         sent: set[str] = set(entry.get("sent", [])) if entry else set()
         if entry and not same_instant(parse_iso(entry.get("due")), item.due_at):
